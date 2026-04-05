@@ -1,0 +1,10 @@
+{
+  "id": "makespdf",
+  "name": "MakesPDF — Markdown to PDF",
+  "version": "0.0.1",
+  "minAppVersion": "0.15.0",
+  "description": "Export notes to beautifully typeset, accessible PDFs via makespdf.com",
+  "author": "makespdf",
+  "authorUrl": "https://makespdf.com",
+  "isDesktopOnly": false
+}
