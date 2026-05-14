@@ -497,26 +497,23 @@ export default class MakesPdfPlugin extends Plugin {
       file.path,
     );
 
-    if (!this.settings.apiKey) {
-      new Notice(
-        "MakesPDF: No API key configured. Go to Settings → MakesPDF to add one.",
-      );
-      return;
-    }
-
     const notice = new Notice("Exporting to PDF...", 0);
 
     try {
       const url = `${this.settings.apiUrl.replace(/\/+$/, "")}/api/v1/md`;
       const title = file.basename;
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (this.settings.apiKey) {
+        headers.Authorization = `Bearer ${this.settings.apiKey}`;
+      }
+
       const response = await requestUrl({
         url,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.settings.apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
           markdown,
           options: {
@@ -535,6 +532,12 @@ export default class MakesPdfPlugin extends Plugin {
           detail = JSON.parse(new TextDecoder().decode(response.arrayBuffer)).error;
         } catch {
           detail = `HTTP ${response.status}`;
+        }
+        if (
+          (response.status === 429 || response.status === 413) &&
+          !this.settings.apiKey
+        ) {
+          detail += " — add an API key in Settings → MakesPDF for higher limits.";
         }
         throw new Error(detail);
       }
@@ -616,7 +619,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("API key")
       .setDesc(
-        "Your makespdf.com API key. Get one at makespdf.com → Settings → API Keys.",
+        "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from makespdf.com → Settings → API Keys for higher limits and larger documents.",
       )
       .addText((text) =>
         text
