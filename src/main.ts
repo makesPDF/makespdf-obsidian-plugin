@@ -1,7 +1,7 @@
 /**
- * MakesPDF — Obsidian plugin
+ * MakesPDF - Obsidian plugin
  *
- * Exports the current note to a beautifully typeset, accessible PDF
+ * Exports the current note to a typeset, accessible PDF (PDF/A-2A + PDF/UA-1)
  * via the makespdf.com API.
  */
 
@@ -12,8 +12,11 @@ import {
   PluginSettingTab,
   Setting,
   TFile,
+  normalizePath,
   requestUrl,
 } from "obsidian";
+
+import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -40,125 +43,6 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
 };
 
 // ---------------------------------------------------------------------------
-// Obsidian → GFM Preprocessor
-// ---------------------------------------------------------------------------
-
-/**
- * Map of Obsidian callout types to the closest GFM alert type.
- * Types not listed here default to NOTE.
- */
-const CALLOUT_MAP: Record<string, string> = {
-  // Direct GFM equivalents
-  note: "NOTE",
-  tip: "TIP",
-  hint: "TIP",
-  important: "IMPORTANT",
-  warning: "WARNING",
-  attention: "WARNING",
-  caution: "CAUTION",
-  // Obsidian extras → closest GFM match
-  info: "NOTE",
-  abstract: "NOTE",
-  summary: "NOTE",
-  tldr: "NOTE",
-  todo: "NOTE",
-  success: "TIP",
-  check: "TIP",
-  done: "TIP",
-  question: "NOTE",
-  help: "NOTE",
-  faq: "NOTE",
-  failure: "CAUTION",
-  fail: "CAUTION",
-  missing: "CAUTION",
-  danger: "CAUTION",
-  error: "CAUTION",
-  bug: "CAUTION",
-  example: "NOTE",
-  quote: "NOTE",
-  cite: "NOTE",
-};
-
-/**
- * Converts Obsidian-flavoured markdown to GFM-compatible markdown.
- *
- * Handles: wikilinks, image embeds with resize, highlights, comments,
- * block references, tags, callout titles/types, and image resize syntax.
- */
-function preprocessObsidian(md: string): string {
-  let result = md;
-
-  // 1. Strip comments %%...%% (block and inline)
-  result = result.replace(/%%[\s\S]*?%%/g, "");
-
-  // 2. Strip block reference IDs (trailing ^block-id)
-  result = result.replace(/ \^[\w-]+$/gm, "");
-
-  // 3. Image embeds: ![[file.ext]] and ![[file.ext|300]] (files with image extensions)
-  result = result.replace(
-    /!\[\[([^\]|]+\.(?:png|jpe?g|gif|svg|webp|bmp|avif))(?:\|(\d+(?:x\d+)?))?\]\]/gi,
-    (_match, path: string, size?: string) => {
-      if (size && size.includes("x")) {
-        const [w, h] = size.split("x");
-        return `<img src="${path}" width="${w}" height="${h}" alt="${path}">`;
-      } else if (size) {
-        return `<img src="${path}" width="${size}" alt="${path}">`;
-      }
-      return `![${path}](${path})`;
-    },
-  );
-
-  // 4. Non-image embeds: ![[note]] and ![[note#heading]]
-  //    Left as-is here — resolved by resolveNoteEmbeds() which has vault access.
-  //    If not resolved (e.g. depth limit hit), fallback converts to italic ref.
-
-  // 5. Wikilinks: [[page|alias]] → alias, [[page#heading]] → heading, [[page]] → page
-  result = result.replace(
-    /\[\[([^\]|]+?)(?:#([^\]|]*?))?(?:\|([^\]]*?))?\]\]/g,
-    (_match, page: string, _heading?: string, alias?: string) => {
-      if (alias) return alias;
-      if (_heading) return _heading;
-      return page;
-    },
-  );
-
-  // 6. Highlights: ==text== → <mark>text</mark>
-  result = result.replace(/==(.+?)==/g, "<mark>$1</mark>");
-
-  // 7. Image resize in standard syntax: ![alt|300](url) → <img>
-  result = result.replace(
-    /!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(([^)]+)\)/g,
-    (_match, alt: string, size: string, url: string) => {
-      if (size.includes("x")) {
-        const [w, h] = size.split("x");
-        return `<img src="${url}" width="${w}" height="${h}" alt="${alt}">`;
-      }
-      return `<img src="${url}" width="${size}" alt="${alt}">`;
-    },
-  );
-
-  // 8. Tags: #tag and #nested/tag → inline code (but not inside headings or #! patterns)
-  //    Avoid matching inside headings (# Heading), hex colors (#fff), or numbered refs (#123)
-  result = result.replace(
-    /(?<=\s|^)#([a-zA-Z][a-zA-Z0-9_/-]*)/gm,
-    (_match, tag: string) => `\`#${tag}\``,
-  );
-
-  // 9. Callouts: convert Obsidian types/titles to GFM alerts
-  //    > [!type]  or  > [!type] Title  or  > [!type]- / > [!type]+
-  result = result.replace(
-    /^(>\s*)\[!(\w+)\]([+-])?(?:[ \t]+(.+))?$/gm,
-    (_match, prefix: string, type: string, _foldable?: string, title?: string) => {
-      const gfmType = CALLOUT_MAP[type.toLowerCase()] ?? "NOTE";
-      const titleLine = title ? `\n${prefix}**${title}**\n${prefix}` : "";
-      return `${prefix}[!${gfmType}]${titleLine}`;
-    },
-  );
-
-  return result;
-}
-
-// ---------------------------------------------------------------------------
 // Note Embed Resolution
 // ---------------------------------------------------------------------------
 
@@ -168,7 +52,7 @@ const MAX_EMBED_DEPTH = 3;
 /** Max total size (in characters) of all inlined content to prevent payload bloat. */
 const MAX_EMBED_TOTAL_CHARS = 200_000;
 
-/** Image extension pattern — used to skip image embeds (handled separately). */
+/** Image extension pattern, used to skip image embeds (handled separately). */
 const IMAGE_EXT_PATTERN = /\.(?:png|jpe?g|gif|svg|webp|bmp|avif)$/i;
 
 /**
@@ -218,26 +102,26 @@ async function resolveNoteEmbeds(
 
     // Guard: depth limit
     if (depth >= MAX_EMBED_DEPTH) {
-      parts.push(`*\u2014 ${ref} (embed depth limit)\u00A0\u2014*`);
+      parts.push(`*[embed depth limit: ${ref}]*`);
       continue;
     }
 
     // Guard: total size limit
     if (totalChars.value >= MAX_EMBED_TOTAL_CHARS) {
-      parts.push(`*\u2014 ${ref} (embed size limit)\u00A0\u2014*`);
+      parts.push(`*[embed size limit: ${ref}]*`);
       continue;
     }
 
     // Resolve the note
     const file = resolveLink(notePath, sourcePath);
     if (!file) {
-      parts.push(`*\u2014 ${ref} (not found)\u00A0\u2014*`);
+      parts.push(`*[not found: ${ref}]*`);
       continue;
     }
 
     // Guard: circular reference
     if (visited.has(file.path)) {
-      parts.push(`*\u2014 ${ref} (circular embed)\u00A0\u2014*`);
+      parts.push(`*[circular embed: ${ref}]*`);
       continue;
     }
 
@@ -268,7 +152,7 @@ async function resolveNoteEmbeds(
         totalChars.value += content.length;
         if (totalChars.value > MAX_EMBED_TOTAL_CHARS) {
           content = content.slice(0, MAX_EMBED_TOTAL_CHARS - totalChars.value + content.length);
-          content += "\n\n*\u2014 (truncated: embed size limit) \u2014*";
+          content += "\n\n*[truncated: embed size limit]*";
         }
 
         // Recursively resolve embeds in the inlined content
@@ -301,46 +185,6 @@ async function resolveNoteEmbeds(
   return result;
 }
 
-/**
- * Extract a heading section from markdown content.
- * Returns everything from the heading to the next heading of equal or higher level.
- */
-function extractSection(content: string, heading: string): string {
-  const lines = content.split("\n");
-  let startIdx = -1;
-  let startLevel = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const headingMatch = lines[i].match(/^(#{1,6})\s+(.+)/);
-    if (!headingMatch) continue;
-
-    const level = headingMatch[1].length;
-    const text = headingMatch[2].trim();
-
-    if (startIdx < 0 && text.toLowerCase() === heading.toLowerCase()) {
-      startIdx = i;
-      startLevel = level;
-    } else if (startIdx >= 0 && level <= startLevel) {
-      return lines.slice(startIdx, i).join("\n");
-    }
-  }
-
-  return startIdx >= 0 ? lines.slice(startIdx).join("\n") : content;
-}
-
-/**
- * Extract a block by its ^block-id reference.
- */
-function extractBlock(content: string, blockId: string): string {
-  const lines = content.split("\n");
-  for (const line of lines) {
-    if (line.includes(`^${blockId}`)) {
-      return line.replace(` ^${blockId}`, "").trim();
-    }
-  }
-  return content;
-}
-
 /** MIME types for image extensions. */
 const IMAGE_MIME: Record<string, string> = {
   png: "image/png",
@@ -353,9 +197,6 @@ const IMAGE_MIME: Record<string, string> = {
   avif: "image/avif",
 };
 
-/** Image extensions we can inline. */
-const IMAGE_EXT_RE = /\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i;
-
 /**
  * Resolve local image paths in the markdown to data: URIs by reading
  * from the Obsidian vault. Remote URLs (http/https) are left untouched
@@ -363,12 +204,12 @@ const IMAGE_EXT_RE = /\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i;
  */
 async function inlineVaultImages(
   md: string,
-  vault: { adapter: { readBinary(path: string): Promise<ArrayBuffer> } },
+  vault: { readBinary(file: TFile): Promise<ArrayBuffer> },
   resolveAttachment: (linkpath: string, sourcePath: string) => TFile | null,
   sourcePath: string,
 ): Promise<string> {
   // Collect all local image references: ![alt](path) and <img src="path">
-  const localImages = new Map<string, string>(); // path → data URI
+  const localImages = new Map<string, string>(); // path -> data URI
 
   // Match ![...](path) where path doesn't start with http
   const mdImageRe = /!\[[^\]]*\]\(([^)]+)\)/g;
@@ -393,10 +234,11 @@ async function inlineVaultImages(
         const file = resolveAttachment(path, sourcePath);
         if (!file) return;
 
-        const buf = await vault.adapter.readBinary(file.path);
         const ext = file.extension.toLowerCase();
         const mime = IMAGE_MIME[ext];
         if (!mime) return;
+
+        const buf = await vault.readBinary(file);
 
         // Convert to base64 data URI
         const bytes = new Uint8Array(buf);
@@ -407,7 +249,7 @@ async function inlineVaultImages(
         const b64 = btoa(binary);
         localImages.set(path, `data:${mime};base64,${b64}`);
       } catch {
-        // File not found or unreadable — leave the path as-is
+        // File not found or unreadable, leave the path as-is
       }
     }),
   );
@@ -439,7 +281,7 @@ export default class MakesPdfPlugin extends Plugin {
       name: "Export current note to PDF",
       editorCallback: (_editor, view) => {
         if (view.file) {
-          this.exportToPdf(view.file);
+          void this.exportToPdf(view.file);
         }
       },
     });
@@ -514,6 +356,7 @@ export default class MakesPdfPlugin extends Plugin {
         url,
         method: "POST",
         headers,
+        throw: false,
         body: JSON.stringify({
           markdown,
           options: {
@@ -537,7 +380,7 @@ export default class MakesPdfPlugin extends Plugin {
           (response.status === 429 || response.status === 413) &&
           !this.settings.apiKey
         ) {
-          detail += " — add an API key in Settings → MakesPDF for higher limits.";
+          detail += ". Add an API key in the MakesPDF settings for higher limits.";
         }
         throw new Error(detail);
       }
@@ -545,17 +388,16 @@ export default class MakesPdfPlugin extends Plugin {
       // Determine output path
       const pdfName = `${title}.pdf`;
       let pdfPath: string;
-      if (this.settings.outputFolder) {
-        // Ensure folder exists
-        const folder = this.settings.outputFolder.replace(/\/+$/, "");
+      if (this.settings.outputFolder.trim()) {
+        const folder = normalizePath(this.settings.outputFolder);
         if (!this.app.vault.getAbstractFileByPath(folder)) {
           await this.app.vault.createFolder(folder);
         }
-        pdfPath = `${folder}/${pdfName}`;
+        pdfPath = normalizePath(`${folder}/${pdfName}`);
       } else {
         // Save alongside the source note
         const dir = file.parent?.path;
-        pdfPath = dir && dir !== "/" ? `${dir}/${pdfName}` : pdfName;
+        pdfPath = dir && dir !== "/" ? normalizePath(`${dir}/${pdfName}`) : pdfName;
       }
 
       // Write or overwrite the PDF
@@ -614,12 +456,10 @@ class MakesPdfSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "MakesPDF Settings" });
-
     new Setting(containerEl)
       .setName("API key")
       .setDesc(
-        "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from makespdf.com → Settings → API Keys for higher limits and larger documents.",
+        "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.",
       )
       .addText((text) =>
         text
@@ -643,6 +483,8 @@ class MakesPdfSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    new Setting(containerEl).setName("Output").setHeading();
 
     new Setting(containerEl)
       .setName("Page size")
@@ -678,7 +520,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Font size")
-      .setDesc("Font size in points (6–24)")
+      .setDesc("Font size in points (6 to 24)")
       .addSlider((slider) =>
         slider
           .setLimits(6, 24, 1)

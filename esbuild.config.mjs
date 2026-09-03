@@ -13,7 +13,8 @@ esbuild
     outfile: "main.js",
     sourcemap: prod ? false : "inline",
     logLevel: "info",
-    platform: "node",
+    platform: "browser",
+    treeShaking: true,
     minify: prod,
   })
   .catch(() => process.exit(1));

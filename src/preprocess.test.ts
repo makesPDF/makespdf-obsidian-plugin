@@ -1,78 +1,9 @@
 /**
- * Tests for Obsidian → GFM preprocessing.
- *
- * We can't import main.ts directly (it imports from "obsidian"),
- * so we extract the preprocessor and test via inline snapshot.
+ * Tests for the Obsidian to GFM preprocessor.
  */
 import { describe, it, expect } from "vitest";
 
-// Copy of preprocessObsidian for testing — kept in sync with main.ts
-// In a real setup we'd extract to a shared module, but obsidian types
-// make that awkward.
-
-const CALLOUT_MAP: Record<string, string> = {
-  note: "NOTE", tip: "TIP", hint: "TIP", important: "IMPORTANT",
-  warning: "WARNING", attention: "WARNING", caution: "CAUTION",
-  info: "NOTE", abstract: "NOTE", summary: "NOTE", tldr: "NOTE",
-  todo: "NOTE", success: "TIP", check: "TIP", done: "TIP",
-  question: "NOTE", help: "NOTE", faq: "NOTE",
-  failure: "CAUTION", fail: "CAUTION", missing: "CAUTION",
-  danger: "CAUTION", error: "CAUTION", bug: "CAUTION",
-  example: "NOTE", quote: "NOTE", cite: "NOTE",
-};
-
-function preprocessObsidian(md: string): string {
-  let result = md;
-  result = result.replace(/%%[\s\S]*?%%/g, "");
-  result = result.replace(/ \^[\w-]+$/gm, "");
-  result = result.replace(
-    /!\[\[([^\]|]+\.(?:png|jpe?g|gif|svg|webp|bmp|avif))(?:\|(\d+(?:x\d+)?))?\]\]/gi,
-    (_m, path: string, size?: string) => {
-      if (size && size.includes("x")) {
-        const [w, h] = size.split("x");
-        return `<img src="${path}" width="${w}" height="${h}" alt="${path}">`;
-      } else if (size) {
-        return `<img src="${path}" width="${size}" alt="${path}">`;
-      }
-      return `![${path}](${path})`;
-    },
-  );
-  result = result.replace(/!\[\[([^\]]+)\]\]/g, (_m, ref: string) => `*See: ${ref}*`);
-  result = result.replace(
-    /\[\[([^\]|]+?)(?:#([^\]|]*?))?(?:\|([^\]]*?))?\]\]/g,
-    (_m, page: string, heading?: string, alias?: string) => {
-      if (alias) return alias;
-      if (heading) return heading;
-      return page;
-    },
-  );
-  result = result.replace(/==(.+?)==/g, "<mark>$1</mark>");
-  result = result.replace(
-    /!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(([^)]+)\)/g,
-    (_m, alt: string, size: string, url: string) => {
-      if (size.includes("x")) {
-        const [w, h] = size.split("x");
-        return `<img src="${url}" width="${w}" height="${h}" alt="${alt}">`;
-      }
-      return `<img src="${url}" width="${size}" alt="${alt}">`;
-    },
-  );
-  result = result.replace(
-    /(?<=\s|^)#([a-zA-Z][a-zA-Z0-9_/-]*)/gm,
-    (_m, tag: string) => `\`#${tag}\``,
-  );
-  result = result.replace(
-    /^(>\s*)\[!(\w+)\]([+-])?(?:[ \t]+(.+))?$/gm,
-    (_m, prefix: string, type: string, _fold?: string, title?: string) => {
-      const gfmType = CALLOUT_MAP[type.toLowerCase()] ?? "NOTE";
-      const titleLine = title ? `\n${prefix}**${title}**\n${prefix}` : "";
-      return `${prefix}[!${gfmType}]${titleLine}`;
-    },
-  );
-  return result;
-}
-
-// ---------------------------------------------------------------------------
+import { preprocessObsidian } from "./preprocess";
 
 describe("preprocessObsidian", () => {
   it("strips comments", () => {
@@ -94,8 +25,15 @@ describe("preprocessObsidian", () => {
     );
   });
 
-  it("converts note embeds to italic references", () => {
-    expect(preprocessObsidian("![[My Note#Section]]")).toBe("*See: My Note#Section*");
+  it("leaves note embeds for the vault-aware resolver", () => {
+    // resolveNoteEmbeds() runs before this and inlines or replaces every embed.
+    // preprocessObsidian must not mistake an embed for a wikilink.
+    expect(preprocessObsidian("![[My Note#Section]]")).toBe("![[My Note#Section]]");
+    expect(preprocessObsidian("![[My Note]]")).toBe("![[My Note]]");
+  });
+
+  it("still converts adjacent wikilinks", () => {
+    expect(preprocessObsidian("[[a]][[b]]")).toBe("ab");
   });
 
   it("converts wikilinks", () => {
