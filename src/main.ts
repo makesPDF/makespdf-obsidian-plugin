@@ -11,6 +11,7 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
+  type SettingDefinitionItem,
   TFile,
   normalizePath,
   requestUrl,
@@ -40,6 +41,27 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   fontSize: 10,
   margins: [40, 40, 40, 40],
   outputFolder: "",
+};
+
+/** Setting copy and options, shared by both settings renderers below. */
+const API_KEY_DESC =
+  "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.";
+const API_URL_DESC = "Override for self-hosted or development use.";
+const FONT_SIZE_DESC = "Font size in points (6 to 24)";
+const OUTPUT_FOLDER_DESC =
+  "Save PDFs to a specific folder. Leave empty to save alongside the note.";
+
+const PAGE_SIZES: Record<MakesPdfSettings["pageSize"], string> = {
+  A3: "A3",
+  A4: "A4",
+  A5: "A5",
+  Letter: "Letter",
+  Legal: "Legal",
+};
+
+const FONT_FAMILIES: Record<MakesPdfSettings["fontFamily"], string> = {
+  Inter: "Inter",
+  NotoSans: "Noto Sans",
 };
 
 // ---------------------------------------------------------------------------
@@ -76,7 +98,9 @@ async function resolveNoteEmbeds(
 ): Promise<string> {
   // Find all note embeds (not image embeds)
   const embedRe = /!\[\[([^\]]+)\]\]/g;
-  const parts: (string | Promise<string>)[] = [];
+  // Every entry is a promise, including the literal slices, so the array is
+  // uniformly awaitable rather than a mix of values and thenables.
+  const parts: Promise<string>[] = [];
   let lastIndex = 0;
   let match;
 
@@ -86,12 +110,12 @@ async function resolveNoteEmbeds(
     const matchStart = match.index;
 
     // Append text before this embed
-    parts.push(md.slice(lastIndex, matchStart));
+    parts.push(Promise.resolve(md.slice(lastIndex, matchStart)));
     lastIndex = matchStart + fullMatch.length;
 
     // Skip image embeds (already handled)
     if (IMAGE_EXT_PATTERN.test(ref.split("|")[0])) {
-      parts.push(fullMatch);
+      parts.push(Promise.resolve(fullMatch));
       continue;
     }
 
@@ -102,26 +126,26 @@ async function resolveNoteEmbeds(
 
     // Guard: depth limit
     if (depth >= MAX_EMBED_DEPTH) {
-      parts.push(`*[embed depth limit: ${ref}]*`);
+      parts.push(Promise.resolve(`*[embed depth limit: ${ref}]*`));
       continue;
     }
 
     // Guard: total size limit
     if (totalChars.value >= MAX_EMBED_TOTAL_CHARS) {
-      parts.push(`*[embed size limit: ${ref}]*`);
+      parts.push(Promise.resolve(`*[embed size limit: ${ref}]*`));
       continue;
     }
 
     // Resolve the note
     const file = resolveLink(notePath, sourcePath);
     if (!file) {
-      parts.push(`*[not found: ${ref}]*`);
+      parts.push(Promise.resolve(`*[not found: ${ref}]*`));
       continue;
     }
 
     // Guard: circular reference
     if (visited.has(file.path)) {
-      parts.push(`*[circular embed: ${ref}]*`);
+      parts.push(Promise.resolve(`*[circular embed: ${ref}]*`));
       continue;
     }
 
@@ -170,7 +194,7 @@ async function resolveNoteEmbeds(
   }
 
   // Append remaining text after last embed
-  parts.push(md.slice(lastIndex));
+  parts.push(Promise.resolve(md.slice(lastIndex)));
 
   // Resolve all async parts
   const resolved = await Promise.all(parts);
@@ -299,7 +323,8 @@ export default class MakesPdfPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const stored = (await this.loadData()) as Partial<MakesPdfSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
   }
 
   async saveSettings() {
@@ -342,7 +367,11 @@ export default class MakesPdfPlugin extends Plugin {
     const notice = new Notice("Exporting to PDF...", 0);
 
     try {
-      const url = `${this.settings.apiUrl.replace(/\/+$/, "")}/api/v1/md`;
+      const base = (this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl).replace(
+        /\/+$/,
+        "",
+      );
+      const url = `${base}/api/v1/md`;
       const title = file.basename;
 
       const headers: Record<string, string> = {
@@ -370,11 +399,21 @@ export default class MakesPdfPlugin extends Plugin {
       });
 
       if (response.status !== 200) {
-        let detail: string;
+        let detail = `HTTP ${response.status}`;
         try {
-          detail = JSON.parse(new TextDecoder().decode(response.arrayBuffer)).error;
+          const body: unknown = JSON.parse(
+            new TextDecoder().decode(response.arrayBuffer),
+          );
+          if (
+            typeof body === "object" &&
+            body !== null &&
+            "error" in body &&
+            typeof body.error === "string"
+          ) {
+            detail = body.error;
+          }
         } catch {
-          detail = `HTTP ${response.status}`;
+          // Not JSON, or no error field. Keep the status-code fallback.
         }
         if (
           (response.status === 429 || response.status === 413) &&
@@ -431,7 +470,7 @@ export default class MakesPdfPlugin extends Plugin {
         message.includes("fetch failed")
       ) {
         new Notice(
-          `Could not connect to MakesPDF at ${this.settings.apiUrl}. Check your settings.`,
+          `Could not connect to MakesPDF at ${this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl}. Check your settings.`,
         );
       } else {
         new Notice(`PDF export failed: ${message}`);
@@ -452,18 +491,98 @@ class MakesPdfSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  /**
+   * Declarative definitions, used from Obsidian 1.13.0 onwards. Rendering and
+   * persistence are handled by PluginSettingTab, which reads and writes
+   * `this.plugin.settings` by key. Returning a non-empty array here means
+   * display() below is never called on 1.13.0+; it remains as the fallback
+   * for the older versions this plugin still supports.
+   */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        name: "API key",
+        desc: API_KEY_DESC,
+        aliases: ["token", "authorization", "bearer"],
+        control: {
+          type: "text",
+          key: "apiKey",
+          placeholder: "Paste your API key",
+          defaultValue: DEFAULT_SETTINGS.apiKey,
+        },
+      },
+      {
+        name: "API URL",
+        desc: API_URL_DESC,
+        aliases: ["endpoint", "self-hosted", "server"],
+        control: {
+          type: "text",
+          key: "apiUrl",
+          placeholder: DEFAULT_SETTINGS.apiUrl,
+          defaultValue: DEFAULT_SETTINGS.apiUrl,
+        },
+      },
+      {
+        type: "group",
+        heading: "Output",
+        items: [
+          {
+            name: "Page size",
+            control: {
+              type: "dropdown",
+              key: "pageSize",
+              options: PAGE_SIZES,
+              defaultValue: DEFAULT_SETTINGS.pageSize,
+            },
+          },
+          {
+            name: "Font family",
+            control: {
+              type: "dropdown",
+              key: "fontFamily",
+              options: FONT_FAMILIES,
+              defaultValue: DEFAULT_SETTINGS.fontFamily,
+            },
+          },
+          {
+            name: "Font size",
+            desc: FONT_SIZE_DESC,
+            control: {
+              type: "slider",
+              key: "fontSize",
+              min: 6,
+              max: 24,
+              step: 1,
+              defaultValue: DEFAULT_SETTINGS.fontSize,
+            },
+          },
+          {
+            name: "Output folder",
+            desc: OUTPUT_FOLDER_DESC,
+            aliases: ["destination", "save location"],
+            control: {
+              type: "folder",
+              key: "outputFolder",
+              placeholder: "Folder path",
+              defaultValue: DEFAULT_SETTINGS.outputFolder,
+            },
+          },
+        ],
+      },
+    ];
+  }
+
+  /** Fallback renderer for Obsidian versions older than 1.13.0. */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
 
     new Setting(containerEl)
       .setName("API key")
-      .setDesc(
-        "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.",
-      )
+      .setDesc(API_KEY_DESC)
       .addText((text) =>
         text
-          .setPlaceholder("mpdf_...")
+          .setPlaceholder("Paste your API key")
           .setValue(this.plugin.settings.apiKey)
           .onChange(async (value) => {
             this.plugin.settings.apiKey = value;
@@ -473,7 +592,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("API URL")
-      .setDesc("Override for self-hosted or development use.")
+      .setDesc(API_URL_DESC)
       .addText((text) =>
         text
           .setPlaceholder("https://makespdf.com")
@@ -490,13 +609,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
       .setName("Page size")
       .addDropdown((dropdown) =>
         dropdown
-          .addOptions({
-            A3: "A3",
-            A4: "A4",
-            A5: "A5",
-            Letter: "Letter",
-            Legal: "Legal",
-          })
+          .addOptions(PAGE_SIZES)
           .setValue(this.plugin.settings.pageSize)
           .onChange(async (value) => {
             this.plugin.settings.pageSize =
@@ -509,7 +622,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
       .setName("Font family")
       .addDropdown((dropdown) =>
         dropdown
-          .addOptions({ Inter: "Inter", NotoSans: "Noto Sans" })
+          .addOptions(FONT_FAMILIES)
           .setValue(this.plugin.settings.fontFamily)
           .onChange(async (value) => {
             this.plugin.settings.fontFamily =
@@ -520,12 +633,11 @@ class MakesPdfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Font size")
-      .setDesc("Font size in points (6 to 24)")
+      .setDesc(FONT_SIZE_DESC)
       .addSlider((slider) =>
         slider
           .setLimits(6, 24, 1)
           .setValue(this.plugin.settings.fontSize)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.fontSize = value;
             await this.plugin.saveSettings();
@@ -534,12 +646,10 @@ class MakesPdfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Output folder")
-      .setDesc(
-        "Save PDFs to a specific folder. Leave empty to save alongside the note.",
-      )
+      .setDesc(OUTPUT_FOLDER_DESC)
       .addText((text) =>
         text
-          .setPlaceholder("e.g. exports/pdf")
+          .setPlaceholder("Folder path")
           .setValue(this.plugin.settings.outputFolder)
           .onChange(async (value) => {
             this.plugin.settings.outputFolder = value;
