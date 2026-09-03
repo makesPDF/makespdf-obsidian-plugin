@@ -1,16 +1,20 @@
 {
   "name": "makespdf-obsidian-plugin",
-  "version": "0.1.0",
-  "description": "Obsidian plugin — export notes to PDF via makespdf.com",
+  "version": "1.0.0",
+  "description": "Obsidian plugin: export notes to accessible PDFs via makespdf.com",
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.24.0",
     "obsidian": "latest",
-    "typescript": "^5.7.2"
-  }
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "license": "MIT",
+  "author": "Jason Galea"
 }
