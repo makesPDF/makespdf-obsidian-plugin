@@ -1,0 +1,55 @@
+name: Release
+
+# Builds main.js in CI and attaches it to the GitHub release with a build
+# provenance attestation, so users can cryptographically verify the asset was
+# built from this repository. Triggered by pushing a tag that matches the
+# version in manifest.json (no "v" prefix, per the Obsidian release rules).
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write # create the release and upload assets
+  id-token: write # mint the OIDC token the attestation is signed with
+  attestations: write # record the attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify the tag matches manifest.json
+        run: |
+          manifest_version=$(node -p "require('./manifest.json').version")
+          if [ "$manifest_version" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match manifest.json version ${manifest_version}" >&2
+            exit 1
+          fi
+
+      - run: npm run typecheck
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Attest build provenance for main.js
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: main.js
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" main.js manifest.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file .github/release-notes.md

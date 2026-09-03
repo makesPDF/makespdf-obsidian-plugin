@@ -1,6 +1,6 @@
 {
   "name": "makespdf-obsidian-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Obsidian plugin: export notes to accessible PDFs via makespdf.com",
   "scripts": {
     "build": "node esbuild.config.mjs production",
