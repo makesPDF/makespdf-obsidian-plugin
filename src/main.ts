@@ -17,6 +17,7 @@ import {
   requestUrl,
 } from "obsidian";
 
+import { outputFolderError } from "./output-folder";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,8 @@ const API_KEY_DESC =
 const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
 const OUTPUT_FOLDER_DESC =
-  "Save PDFs to a specific folder. Leave empty to save alongside the note.";
+  "A folder inside your vault. Leave empty to save alongside the note. PDFs are written into the vault, so paths outside it (such as ~/Downloads) are not supported.";
+
 
 const PAGE_SIZES: Record<MakesPdfSettings["pageSize"], string> = {
   A3: "A3",
@@ -428,6 +430,12 @@ export default class MakesPdfPlugin extends Plugin {
       const pdfName = `${title}.pdf`;
       let pdfPath: string;
       if (this.settings.outputFolder.trim()) {
+        const folderError = outputFolderError(this.settings.outputFolder);
+        if (folderError) {
+          notice.hide();
+          new Notice(`Output folder: ${folderError}`);
+          return;
+        }
         const folder = normalizePath(this.settings.outputFolder);
         if (!this.app.vault.getAbstractFileByPath(folder)) {
           await this.app.vault.createFolder(folder);
@@ -565,6 +573,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
               key: "outputFolder",
               placeholder: "Folder path",
               defaultValue: DEFAULT_SETTINGS.outputFolder,
+              validate: (value) => outputFolderError(value),
             },
           },
         ],

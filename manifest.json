@@ -1,7 +1,7 @@
 {
   "id": "makespdf",
   "name": "MakesPDF",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "1.4.0",
   "description": "Export notes to accessible, archival-quality PDFs (PDF/A-2A and PDF/UA-1) using the makespdf.com API.",
   "author": "Jason Galea",

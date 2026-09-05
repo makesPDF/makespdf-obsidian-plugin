@@ -47,8 +47,13 @@ page allowance currently in effect.
 - **Command palette:** "Export current note to PDF"
 - **Ribbon icon:** the PDF export button in the left sidebar
 
-The PDF is written next to the note, or into the folder set in **Output folder**.
-Re-exporting overwrites the previous file.
+The PDF is written into your vault, next to the note, or into the folder set in
+**Output folder**. Re-exporting overwrites the previous file.
+
+Output paths are relative to the vault root. PDFs are created through Obsidian's
+vault API, so they cannot be written outside the vault: a path like
+`~/Downloads` is not expanded and is rejected rather than creating a folder
+named `~` in your vault.
 
 ### What gets converted
 
@@ -78,7 +83,7 @@ task lists, and Mermaid diagrams render natively.
 | Page size | A4 | A3, A4, A5, Letter, or Legal |
 | Font family | Inter | Inter or Noto Sans |
 | Font size | 10 | Points, 6 to 24 |
-| Output folder | empty | Empty saves the PDF alongside the note. |
+| Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
 
 ## Development
 
