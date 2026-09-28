@@ -32,11 +32,13 @@ exported with the default settings.*
   one is set, so the feedback is linked to your account. Without a key, or if
   the server rejects it, feedback is sent anonymously. **Report problem** also
   sends a few facts about the failed export: the HTTP status, the server's
-  error code if it returned one, your page size setting, and the size of the
-  note in bytes. Feedback never includes the note's text, its path, or your
-  vault name. The service stores a salted hash of your IP address for rate
-  limiting and keeps feedback until the makesPDF team deletes it. Please don't
-  paste note content into the message.
+  error code if it returned one, your page size setting, and the size in bytes
+  of the export request (the note plus any embedded notes and inlined images).
+  Feedback never includes the note's text, its path, or your vault name. The
+  service stores your message with a daily-salted hash of your IP address and
+  your country code, and keeps it until the makesPDF team deletes it. Your IP
+  address is also used, unhashed, for rate limiting. Please don't paste note
+  content into the message.
 - Nothing else is transmitted. No analytics or telemetry are collected by the
   plugin.
 - The endpoint you talk to is configurable. Point **API URL** at your own

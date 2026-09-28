@@ -41,10 +41,13 @@ jobs:
 
       - run: npm run build
 
-      - name: Attest build provenance for main.js
+      - name: Attest build provenance for the release assets
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: main.js
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create the release
         env:

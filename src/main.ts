@@ -543,6 +543,7 @@ const FEEDBACK_KINDS: Record<FeedbackKind, string> = {
 };
 
 const PROBLEM_HINT = "What went wrong? Please don't paste note content.";
+const RATE_LIMITED = "Too many feedback messages, try again later.";
 const OTHER_HINT = "Your feedback. Please don't paste note content.";
 
 class FeedbackModal extends Modal {
@@ -591,8 +592,21 @@ class FeedbackModal extends Modal {
           if (problem) return;
           this.sending = true;
           button.setDisabled(true);
-          await this.send(textarea.value);
-          this.close();
+          const failure = await this.send(textarea.value);
+          if (failure === null) {
+            this.close();
+            return;
+          }
+          // Keep the modal and the typed message so nothing has to be
+          // retyped; show why it failed and let the user try again.
+          errorEl.empty();
+          errorEl.appendText(failure);
+          if (failure !== RATE_LIMITED) {
+            errorEl.appendText(" ");
+            errorEl.createEl("a", { text: "Open a GitHub issue instead", href: ISSUES_URL });
+          }
+          this.sending = false;
+          button.setDisabled(false);
         }),
     );
     textarea.focus();
@@ -602,7 +616,8 @@ class FeedbackModal extends Modal {
     this.contentEl.empty();
   }
 
-  private async send(message: string) {
+  /** Send the feedback: null on success, else the message to show in the modal. */
+  private async send(message: string): Promise<string | null> {
     const settings = this.plugin.settings;
     const result = await sendFeedback(
       {
@@ -618,17 +633,10 @@ class FeedbackModal extends Modal {
 
     if (result.status === "sent") {
       new Notice("Thanks, feedback sent.");
-    } else if (result.status === "rate-limited") {
-      new Notice("Too many feedback messages, try again later.");
-    } else {
-      new Notice(
-        createFragment((frag) => {
-          frag.appendText(`Could not send feedback: ${result.error}. `);
-          frag.createEl("a", { text: "Open a GitHub issue instead", href: ISSUES_URL });
-        }),
-        15_000,
-      );
+      return null;
     }
+    if (result.status === "rate-limited") return RATE_LIMITED;
+    return `Could not send feedback: ${result.error}.`;
   }
 }
 
