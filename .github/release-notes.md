@@ -1,14 +1,14 @@
-Fixes an output-folder bug found in testing.
+Adds a way to send feedback to the MakesPDF team.
 
-Setting the output folder to a path outside the vault, such as `~/Downloads`,
-silently created a folder literally named `~` inside the vault and wrote the PDF
-there. PDFs are created through Obsidian's vault API, which is vault-relative
-and does not expand `~`, so such a path can never mean what it looks like it
-means.
+- **Report problem.** When an export fails, the error notice has a
+  **Report problem** link. It opens a short form; your message is sent with a
+  few facts about the failure (HTTP status, error code, page size, note size in
+  bytes). The note's text, its path and your vault name are never sent.
+- **Send feedback.** A new command and a button in the plugin settings open the
+  same form, where you can send a problem, an idea or praise.
 
-Paths that try to leave the vault (`~`, a leading `/`, or `..` traversal) are now
-rejected with an explanation, both in settings and at export time, and the
-setting description says that the folder is inside your vault.
+Feedback works without an API key. See the README's "Network use and privacy"
+section for exactly what a feedback request contains.
 
 Release assets carry a build provenance attestation:
 

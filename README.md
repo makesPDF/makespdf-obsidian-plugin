@@ -20,11 +20,25 @@ exported with the default settings.*
 
 - When you run an export, the note's markdown is POSTed to
   `https://makespdf.com/api/v1/md` and the resulting PDF is written back into
-  your vault. Nothing else is transmitted.
+  your vault.
 - Embedded local images are read from your vault and inlined into that same
   request. Embedded notes (`![[note]]`) are inlined too, so their contents are
   sent as well.
-- No analytics or telemetry are collected by the plugin.
+- **Feedback is sent only when you send it.** **Send feedback** (command and
+  settings button) and the **Report problem** link on an export error POST to
+  `https://makespdf.com/api/v1/feedback` (on your configured API URL). A
+  feedback request contains the message you type, the kind you picked
+  (problem, idea or praise), the plugin name and version, and your API key if
+  one is set, so the feedback is linked to your account. Without a key, or if
+  the server rejects it, feedback is sent anonymously. **Report problem** also
+  sends a few facts about the failed export: the HTTP status, the server's
+  error code if it returned one, your page size setting, and the size of the
+  note in bytes. Feedback never includes the note's text, its path, or your
+  vault name. The service stores a salted hash of your IP address for rate
+  limiting and keeps feedback until the makesPDF team deletes it. Please don't
+  paste note content into the message.
+- Nothing else is transmitted. No analytics or telemetry are collected by the
+  plugin.
 - The endpoint you talk to is configurable. Point **API URL** at your own
   deployment if you do not want to use the hosted service.
 - Uploaded source and rendered output are retained by the service for 7 days so
@@ -84,6 +98,7 @@ task lists, and Mermaid diagrams render natively.
 | Font family | Inter | Inter or Noto Sans |
 | Font size | 10 | Points, 6 to 24 |
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
+| Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
 
 ## Development
 

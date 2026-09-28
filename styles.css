@@ -1,0 +1,11 @@
+/* Feedback modal (Send feedback / Report problem). */
+.makespdf-feedback-message {
+  width: 100%;
+  min-height: 8em;
+  resize: vertical;
+}
+
+.makespdf-feedback-error {
+  color: var(--text-error);
+  min-height: 1.5em;
+}

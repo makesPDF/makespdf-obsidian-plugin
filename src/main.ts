@@ -7,6 +7,7 @@
 
 import {
   App,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -17,6 +18,15 @@ import {
   requestUrl,
 } from "obsidian";
 
+import {
+  buildProblemContext,
+  errorFieldOf,
+  sendFeedback,
+  validateFeedbackMessage,
+  type ExportFailureFacts,
+  type FeedbackContext,
+  type FeedbackKind,
+} from "./feedback";
 import { outputFolderError } from "./output-folder";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 
@@ -65,6 +75,10 @@ const FONT_FAMILIES: Record<MakesPdfSettings["fontFamily"], string> = {
   Inter: "Inter",
   NotoSans: "Noto Sans",
 };
+
+const FEEDBACK_DESC =
+  "Report a problem or send an idea to the MakesPDF team. Only the message you type is sent - never your notes.";
+const ISSUES_URL = "https://github.com/makesPDF/makespdf-obsidian-plugin/issues";
 
 // ---------------------------------------------------------------------------
 // Note Embed Resolution
@@ -312,6 +326,12 @@ export default class MakesPdfPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "send-feedback",
+      name: "Send feedback",
+      callback: () => this.openFeedback(),
+    });
+
     this.addRibbonIcon("file-down", "Export to PDF", async () => {
       const file = this.app.workspace.getActiveFile();
       if (!file) {
@@ -331,6 +351,31 @@ export default class MakesPdfPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Open the feedback modal. With `problem`, the kind is fixed and the
+   * fingerprints of the failed export ride along as `context`; without it
+   * the user picks a kind and no context is sent.
+   */
+  openFeedback(problem?: ExportFailureFacts) {
+    new FeedbackModal(this.app, this, problem ? buildProblemContext(problem) : undefined).open();
+  }
+
+  /** Error notice with a "Report problem" link that opens the feedback modal. */
+  private showExportError(message: string, facts: ExportFailureFacts) {
+    const fragment = createFragment((frag) => {
+      frag.appendText(message);
+      frag.createEl("br");
+      const link = frag.createEl("a", { text: "Report problem", href: "#" });
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        notice.hide();
+        this.openFeedback(facts);
+      });
+    });
+    // Long enough to reach the link; a click anywhere else dismisses it.
+    const notice = new Notice(fragment, 15_000);
   }
 
   async exportToPdf(file: TFile) {
@@ -365,6 +410,14 @@ export default class MakesPdfPlugin extends Plugin {
         this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
       file.path,
     );
+
+    // Fingerprints for "Report problem": sizes and settings, never the note
+    // text, its path or the vault name. The failure's status and error code
+    // are added where the render call fails.
+    const facts: ExportFailureFacts = {
+      pageSize: this.settings.pageSize,
+      inputBytes: new TextEncoder().encode(markdown).length,
+    };
 
     const notice = new Notice("Exporting to PDF...", 0);
 
@@ -401,21 +454,12 @@ export default class MakesPdfPlugin extends Plugin {
       });
 
       if (response.status !== 200) {
+        facts.httpStatus = response.status;
         let detail = `HTTP ${response.status}`;
-        try {
-          const body: unknown = JSON.parse(
-            new TextDecoder().decode(response.arrayBuffer),
-          );
-          if (
-            typeof body === "object" &&
-            body !== null &&
-            "error" in body &&
-            typeof body.error === "string"
-          ) {
-            detail = body.error;
-          }
-        } catch {
-          // Not JSON, or no error field. Keep the status-code fallback.
+        const serverError = errorFieldOf(new TextDecoder().decode(response.arrayBuffer));
+        if (serverError !== undefined) {
+          detail = serverError;
+          facts.errorCode = serverError;
         }
         if (
           (response.status === 429 || response.status === 413) &&
@@ -477,12 +521,113 @@ export default class MakesPdfPlugin extends Plugin {
         message.includes("net::ERR") ||
         message.includes("fetch failed")
       ) {
-        new Notice(
+        this.showExportError(
           `Could not connect to MakesPDF at ${this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl}. Check your settings.`,
+          facts,
         );
       } else {
-        new Notice(`PDF export failed: ${message}`);
+        this.showExportError(`PDF export failed: ${message}`, facts);
       }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Feedback Modal
+// ---------------------------------------------------------------------------
+
+const FEEDBACK_KINDS: Record<FeedbackKind, string> = {
+  problem: "Problem",
+  idea: "Idea",
+  praise: "Praise",
+};
+
+const PROBLEM_HINT = "What went wrong? Please don't paste note content.";
+const OTHER_HINT = "Your feedback. Please don't paste note content.";
+
+class FeedbackModal extends Modal {
+  private kind: FeedbackKind = "problem";
+  private sending = false;
+
+  constructor(
+    app: App,
+    private plugin: MakesPdfPlugin,
+    /** Set for "Report problem": the kind is fixed and this is sent as context. */
+    private problemContext?: FeedbackContext,
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    this.titleEl.setText(this.problemContext ? "Report a problem" : "Send feedback");
+
+    if (!this.problemContext) {
+      new Setting(contentEl).setName("Kind").addDropdown((dropdown) =>
+        dropdown
+          .addOptions(FEEDBACK_KINDS)
+          .setValue(this.kind)
+          .onChange((value) => {
+            this.kind = value as FeedbackKind;
+            textarea.placeholder = this.kind === "problem" ? PROBLEM_HINT : OTHER_HINT;
+          }),
+      );
+    }
+
+    const textarea = contentEl.createEl("textarea", {
+      cls: "makespdf-feedback-message",
+      attr: { rows: "6", placeholder: PROBLEM_HINT, "aria-label": "Feedback message" },
+    });
+    const errorEl = contentEl.createDiv({ cls: "makespdf-feedback-error" });
+
+    new Setting(contentEl).addButton((button) =>
+      button
+        .setButtonText("Send")
+        .setCta()
+        .onClick(async () => {
+          if (this.sending) return;
+          const problem = validateFeedbackMessage(textarea.value);
+          errorEl.setText(problem ?? "");
+          if (problem) return;
+          this.sending = true;
+          button.setDisabled(true);
+          await this.send(textarea.value);
+          this.close();
+        }),
+    );
+    textarea.focus();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  private async send(message: string) {
+    const settings = this.plugin.settings;
+    const result = await sendFeedback(
+      {
+        apiUrl: settings.apiUrl || DEFAULT_SETTINGS.apiUrl,
+        version: this.plugin.manifest.version,
+        apiKey: settings.apiKey,
+        kind: this.problemContext ? "problem" : this.kind,
+        message,
+        context: this.problemContext,
+      },
+      (request) => requestUrl(request),
+    );
+
+    if (result.status === "sent") {
+      new Notice("Thanks, feedback sent.");
+    } else if (result.status === "rate-limited") {
+      new Notice("Too many feedback messages, try again later.");
+    } else {
+      new Notice(
+        createFragment((frag) => {
+          frag.appendText(`Could not send feedback: ${result.error}. `);
+          frag.createEl("a", { text: "Open a GitHub issue instead", href: ISSUES_URL });
+        }),
+        15_000,
+      );
     }
   }
 }
@@ -578,6 +723,12 @@ class MakesPdfSettingTab extends PluginSettingTab {
           },
         ],
       },
+      {
+        name: "Send feedback",
+        desc: FEEDBACK_DESC,
+        aliases: ["report", "problem", "bug", "support"],
+        action: () => this.plugin.openFeedback(),
+      },
     ];
   }
 
@@ -664,6 +815,13 @@ class MakesPdfSettingTab extends PluginSettingTab {
             this.plugin.settings.outputFolder = value;
             await this.plugin.saveSettings();
           }),
+      );
+
+    new Setting(containerEl)
+      .setName("Send feedback")
+      .setDesc(FEEDBACK_DESC)
+      .addButton((button) =>
+        button.setButtonText("Send feedback").onClick(() => this.plugin.openFeedback()),
       );
   }
 }
