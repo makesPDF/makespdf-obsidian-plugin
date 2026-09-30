@@ -6,6 +6,9 @@ Adds a way to send feedback to the MakesPDF team.
   size of the export request in bytes). The note's text, its path and your vault name are never sent.
 - **Send feedback.** A new command and a button in the plugin settings open the
   same form, where you can send a problem, an idea or praise.
+- Exports and feedback identify the plugin to the makesPDF API in the
+  `X-MakesPDF-Client` header (`obsidian/<version>`), so renders can be
+  attributed to the Obsidian plugin.
 
 Feedback works without an API key. See the README's "Network use and privacy"
 section for exactly what a feedback request contains.

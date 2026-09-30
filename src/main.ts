@@ -27,6 +27,7 @@ import {
   type FeedbackContext,
   type FeedbackKind,
 } from "./feedback";
+import { buildRenderHeaders } from "./client";
 import { outputFolderError } from "./output-folder";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 
@@ -429,12 +430,10 @@ export default class MakesPdfPlugin extends Plugin {
       const url = `${base}/api/v1/md`;
       const title = file.basename;
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (this.settings.apiKey) {
-        headers.Authorization = `Bearer ${this.settings.apiKey}`;
-      }
+      const headers = buildRenderHeaders({
+        version: this.manifest.version,
+        apiKey: this.settings.apiKey,
+      });
 
       const response = await requestUrl({
         url,
