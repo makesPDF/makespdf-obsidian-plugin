@@ -9,6 +9,8 @@
  * user's message.
  */
 
+import { clientHeaderValue } from "./client";
+
 export type FeedbackKind = "problem" | "idea" | "praise";
 
 /** Server-side cap on `message` (trimmed). */
@@ -109,7 +111,7 @@ export interface FeedbackRequest {
 export function buildFeedbackRequest(args: FeedbackRequestArgs): FeedbackRequest {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-MakesPDF-Client": `obsidian-plugin/${args.version}`,
+    "X-MakesPDF-Client": clientHeaderValue(args.version),
   };
   // An empty `Bearer ` is a failed auth attempt (401), not an anonymous request.
   if (args.apiKey) headers.Authorization = `Bearer ${args.apiKey}`;

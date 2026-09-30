@@ -88,7 +88,7 @@ describe("buildFeedbackRequest", () => {
 
   it("sets the client header always and Authorization only with a key", () => {
     const anon = buildFeedbackRequest(ARGS);
-    expect(anon.headers["X-MakesPDF-Client"]).toBe("obsidian-plugin/1.1.0");
+    expect(anon.headers["X-MakesPDF-Client"]).toBe("obsidian/1.1.0");
     expect(anon.headers.Authorization).toBeUndefined();
     expect(JSON.parse(anon.body)).not.toHaveProperty("context");
 

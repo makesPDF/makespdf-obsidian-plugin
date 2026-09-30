@@ -20,7 +20,8 @@ exported with the default settings.*
 
 - When you run an export, the note's markdown is POSTed to
   `https://makespdf.com/api/v1/md` and the resulting PDF is written back into
-  your vault.
+  your vault. The request identifies the plugin and its version in the
+  `X-MakesPDF-Client` header.
 - Embedded local images are read from your vault and inlined into that same
   request. Embedded notes (`![[note]]`) are inlined too, so their contents are
   sent as well.
