@@ -106,9 +106,20 @@ function formatDate(value: Date): string {
  * print: null, empty strings and empty collections are skipped. Text and
  * numbers print as-is, booleans as Yes/No, lists joined with ", ", wikilinks
  * as their display text, and nested objects as compact `key: value` pairs.
- * The result is not yet table-escaped; buildPropertyTable does that.
+ * A cyclic value (a self-referential YAML alias) prints nothing rather than
+ * recursing forever. The result is not yet table-escaped; buildPropertyTable
+ * does that.
  */
 export function formatPropertyValue(value: unknown): string | null {
+  return formatValue(value, new WeakSet<object>());
+}
+
+/**
+ * The recursive body of formatPropertyValue. `seen` holds the containers on
+ * the current path, so a cycle is skipped while a value re-used in two
+ * sibling positions still prints in both.
+ */
+function formatValue(value: unknown, seen: WeakSet<object>): string | null {
   if (value === null || value === undefined) return null;
 
   if (typeof value === "string") {
@@ -120,19 +131,25 @@ export function formatPropertyValue(value: unknown): string | null {
   if (value instanceof Date) return formatDate(value);
 
   if (Array.isArray(value)) {
+    if (seen.has(value)) return null;
+    seen.add(value);
     const parts = value
-      .map(formatPropertyValue)
+      .map((entry) => formatValue(entry, seen))
       .filter((part): part is string => part !== null);
+    seen.delete(value);
     return parts.length > 0 ? parts.join(", ") : null;
   }
 
   if (typeof value === "object") {
+    if (seen.has(value)) return null;
+    seen.add(value);
     const parts = Object.entries(value as Record<string, unknown>)
       .map(([key, entry]) => {
-        const formatted = formatPropertyValue(entry);
+        const formatted = formatValue(entry, seen);
         return formatted === null ? null : `${key}: ${formatted}`;
       })
       .filter((part): part is string => part !== null);
+    seen.delete(value);
     return parts.length > 0 ? parts.join(", ") : null;
   }
 

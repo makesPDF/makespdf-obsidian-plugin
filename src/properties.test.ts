@@ -84,6 +84,23 @@ describe("formatPropertyValue", () => {
     );
   });
 
+  it("skips the back-reference in a cyclic value instead of recursing forever", () => {
+    // YAML anchors can produce a self-referential value, e.g.
+    // `a: &x` + `  self: *x`; parseYaml returns that as a cyclic object.
+    // The cycle is skipped; the value's own non-cyclic entries still print.
+    const cyclic: Record<string, unknown> = { status: "open" };
+    cyclic.self = cyclic;
+    expect(formatPropertyValue(cyclic)).toBe("status: open");
+    expect(formatPropertyValue([cyclic])).toBe("status: open");
+    expect(formatPropertyValue({ node: cyclic })).toBe("node: status: open");
+  });
+
+  it("still prints a shared, non-cyclic alias in every position", () => {
+    const shared = { k: 1 };
+    expect(formatPropertyValue({ a: shared, b: shared })).toBe("a: k: 1, b: k: 1");
+    expect(formatPropertyValue([shared, shared])).toBe("k: 1, k: 1");
+  });
+
   it("skips null, undefined and empty values", () => {
     expect(formatPropertyValue(null)).toBeNull();
     expect(formatPropertyValue(undefined)).toBeNull();
@@ -235,6 +252,15 @@ describe("buildPropertyTable", () => {
     expect(table).not.toContain("| a |");
     expect(table).not.toContain("| b |");
     expect(table).not.toContain("| c |");
+  });
+
+  it("keeps the other rows when a property is cyclic", () => {
+    const cyclic: Record<string, unknown> = { status: "open" };
+    cyclic.self = cyclic;
+    const table = buildPropertyTable(cyclic, "*");
+    expect(table).toContain("| status | open |");
+    // The self row prints too, with the back-reference skipped.
+    expect(table).toContain("| self | status: open |");
   });
 
   it("escapes keys and values so neither can break the table", () => {
