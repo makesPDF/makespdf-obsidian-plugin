@@ -101,7 +101,17 @@ task lists, and Mermaid diagrams render natively.
 | Font family | Inter | Inter or Noto Sans |
 | Font size | 10 | Points, 6 to 24 |
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
+| Properties to include | empty | Comma-separated property names to print as a table at the top of the PDF, for example `status, owner, due`. Empty prints none; `*` prints every property. |
 | Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
+
+**Properties to include** prints a note's front matter properties (Obsidian's
+*properties*) as a key/value table at the top of the exported PDF. List the
+names you want, in the order you want them, or `*` for every property. Names
+are matched case-insensitively and the note's own spelling is used in the
+table. Lists are joined with commas, booleans print as Yes/No, and wikilinks
+print as their display text. Properties of embedded notes are never printed.
+The front matter block itself is still sent to the server, which reads
+`title`, `author` and the other option keys from it.
 
 ## Development
 

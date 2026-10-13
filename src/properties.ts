@@ -136,8 +136,9 @@ export function formatPropertyValue(value: unknown): string | null {
     return parts.length > 0 ? parts.join(", ") : null;
   }
 
-  // bigint and anything else scalar-like
-  return String(value);
+  // YAML data never reaches here with anything but a bigint; anything else
+  // (a function, a symbol) has no printable form.
+  return typeof value === "bigint" ? value.toString() : null;
 }
 
 /**
