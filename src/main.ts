@@ -9,6 +9,7 @@ import {
   App,
   Modal,
   Notice,
+  parseYaml,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -30,6 +31,11 @@ import {
 import { buildRenderHeaders } from "./client";
 import { outputFolderError } from "./output-folder";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
+import {
+  buildPropertyTable,
+  insertPropertyTable,
+  splitFrontMatter,
+} from "./properties";
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -43,6 +49,7 @@ interface MakesPdfSettings {
   fontSize: number;
   margins: [number, number, number, number];
   outputFolder: string;
+  includeProperties: string;
 }
 
 const DEFAULT_SETTINGS: MakesPdfSettings = {
@@ -53,6 +60,7 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   fontSize: 10,
   margins: [40, 40, 40, 40],
   outputFolder: "",
+  includeProperties: "",
 };
 
 /** Setting copy and options, shared by both settings renderers below. */
@@ -62,6 +70,9 @@ const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
 const OUTPUT_FOLDER_DESC =
   "A folder inside your vault. Leave empty to save alongside the note. PDFs are written into the vault, so paths outside it (such as ~/Downloads) are not supported.";
+const INCLUDE_PROPERTIES_DESC =
+  "Comma-separated property names to print as a table at the top of the PDF, for example status, owner, due. Use * to include every property. Leave empty to print none.";
+const INCLUDE_PROPERTIES_PLACEHOLDER = "For example: status, owner, due";
 
 
 const PAGE_SIZES: Record<MakesPdfSettings["pageSize"], string> = {
@@ -379,6 +390,30 @@ export default class MakesPdfPlugin extends Plugin {
     const notice = new Notice(fragment, 15_000);
   }
 
+  /**
+   * Print the whitelisted front matter properties as a table directly after
+   * the front matter block, leaving the block itself intact so the server
+   * still reads `title`, `author` and the other option keys from it. With an
+   * empty whitelist (the default) the note is returned unchanged.
+   */
+  private withPropertyTable(markdown: string): string {
+    if (!this.settings.includeProperties.trim()) return markdown;
+
+    const info = splitFrontMatter(markdown);
+    if (!info.exists) return markdown;
+
+    let frontmatter: unknown;
+    try {
+      frontmatter = parseYaml(info.frontmatter);
+    } catch {
+      // Malformed YAML: export continues without the properties table.
+      return markdown;
+    }
+
+    const table = buildPropertyTable(frontmatter, this.settings.includeProperties);
+    return table ? insertPropertyTable(markdown, info.contentStart, table) : markdown;
+  }
+
   async exportToPdf(file: TFile) {
     if (file.extension !== "md") {
       new Notice("Active file is not a Markdown document");
@@ -391,19 +426,23 @@ export default class MakesPdfPlugin extends Plugin {
       return;
     }
 
-    // 1. Resolve note embeds (recursive, with depth + size limits)
+    // 1. Prepend the whitelisted properties table, if any. This runs before
+    //    the Obsidian-to-GFM pass so the inserted markdown is converted too.
+    const source = this.withPropertyTable(rawMarkdown);
+
+    // 2. Resolve note embeds (recursive, with depth + size limits)
     let markdown = await resolveNoteEmbeds(
-      rawMarkdown,
+      source,
       this.app.vault,
       (linkpath, sourcePath) =>
         this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
       file.path,
     );
 
-    // 2. Convert Obsidian-specific syntax to GFM
+    // 3. Convert Obsidian-specific syntax to GFM
     markdown = preprocessObsidian(markdown);
 
-    // 3. Inline local images as data URIs
+    // 4. Inline local images as data URIs
     markdown = await inlineVaultImages(
       markdown,
       this.app.vault,
@@ -728,6 +767,17 @@ class MakesPdfSettingTab extends PluginSettingTab {
               validate: (value) => outputFolderError(value),
             },
           },
+          {
+            name: "Properties to include",
+            desc: INCLUDE_PROPERTIES_DESC,
+            aliases: ["frontmatter", "metadata", "yaml"],
+            control: {
+              type: "text",
+              key: "includeProperties",
+              placeholder: INCLUDE_PROPERTIES_PLACEHOLDER,
+              defaultValue: DEFAULT_SETTINGS.includeProperties,
+            },
+          },
         ],
       },
       {
@@ -820,6 +870,19 @@ class MakesPdfSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.outputFolder)
           .onChange(async (value) => {
             this.plugin.settings.outputFolder = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Properties to include")
+      .setDesc(INCLUDE_PROPERTIES_DESC)
+      .addText((text) =>
+        text
+          .setPlaceholder(INCLUDE_PROPERTIES_PLACEHOLDER)
+          .setValue(this.plugin.settings.includeProperties)
+          .onChange(async (value) => {
+            this.plugin.settings.includeProperties = value;
             await this.plugin.saveSettings();
           }),
       );
