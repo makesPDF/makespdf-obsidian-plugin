@@ -17,8 +17,10 @@
  *   server's placeholder cards.
  * - `options` — page size, font family and the canvas name as the title.
  *
- * The endpoint caps a request body at 25MB. A body over that is refused
- * here, before any network call, with a message for the user; the check
+ * The endpoint caps two things: the request body at 25MB, and the `canvas`
+ * document itself at 2MB characters — images inlined into card text count
+ * toward the second; the `files` map does not. Both are refused here,
+ * before any network call, with a message for the user; the body check
  * runs as files are added so a board far over the cap is not read and
  * base64-encoded in full first.
  *
@@ -39,6 +41,14 @@ export const CANVAS_BODY_LIMIT = 25 * 1024 * 1024;
 
 /** Human label for the cap, for messages. */
 export const CANVAS_BODY_LIMIT_LABEL = "25MB";
+
+/**
+ * Max `canvas` JSON in characters (UTF-16 code units); mirrors
+ * `CANVAS_JSON_LIMIT` in makesPDF, which measures the same way on the
+ * re-serialised object. Images inlined into card text live inside this
+ * budget; file-node images travel in `files` and do not.
+ */
+export const CANVAS_JSON_LIMIT = 2 * 1024 * 1024;
 
 /**
  * Image extensions the endpoint embeds; mirrors
@@ -78,11 +88,17 @@ export interface CanvasExportDeps {
   createCanvas: () => HTMLCanvasElement;
   /** Test hook; defaults to CANVAS_BODY_LIMIT. */
   maxBodyBytes?: number;
+  /** Test hook; defaults to CANVAS_JSON_LIMIT. */
+  maxCanvasJsonChars?: number;
 }
 
 export type CanvasExportResult =
   | { ok: true; body: string; bodyBytes: number }
-  | { ok: false; reason: "invalid-json" | "too-large"; message: string };
+  | {
+      ok: false;
+      reason: "invalid-json" | "too-large" | "canvas-too-large";
+      message: string;
+    };
 
 /** The request body's `files` entry for one referenced path. */
 export type CanvasFileEntry = { data: string } | { markdown: string };
@@ -104,6 +120,17 @@ function tooLarge(limit: number): CanvasExportResult {
       `The canvas is over the ${megabytes(limit)} upload limit ` +
       `(the request carries the board, its images and any notes). ` +
       `Remove some images or trim the board and try again.`,
+  };
+}
+
+function canvasTooLarge(limit: number): CanvasExportResult {
+  return {
+    ok: false,
+    reason: "canvas-too-large",
+    message:
+      `The canvas is over the ${megabytes(limit)} limit the service sets for a board ` +
+      `(card text and images embedded in cards count toward it). ` +
+      `Move large images out of card text onto the board itself, or remove some cards, and try again.`,
   };
 }
 
@@ -218,10 +245,18 @@ export async function buildCanvasExport(args: {
 
   await transformTextCards(canvas, sourcePath, deps);
 
+  // The server measures the object form on re-serialisation, the same way,
+  // and 400s an over-cap board before rendering. Catch it here instead: a
+  // card-embedded image is inlined into the canvas JSON (unlike file-node
+  // images, which travel in `files`), so this is the cap big embeds hit.
+  const canvasJsonChars = JSON.stringify(canvas).length;
+  const canvasLimit = deps.maxCanvasJsonChars ?? CANVAS_JSON_LIMIT;
+  if (canvasJsonChars > canvasLimit) return canvasTooLarge(canvasLimit);
+
   // Inlined images dominate the body, and the exact JSON built so far is a
   // tight lower bound for the final one: bail as soon as it is over the
   // cap instead of reading (and encoding) every remaining file first.
-  let bytes = JSON.stringify(canvas).length;
+  let bytes = canvasJsonChars;
   const files: Record<string, CanvasFileEntry> = {};
   for (const path of referencedPaths(canvas)) {
     const entry = await fileEntry(path, sourcePath, deps);

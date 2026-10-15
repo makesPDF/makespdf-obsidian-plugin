@@ -120,9 +120,12 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 - Files of other types (PDFs, audio, and so on) are not sent; the server
   draws a placeholder card naming the file.
 - The request is capped at 25MB. If the board's images would exceed it, the
-  export stops with a notice instead of sending. The service embeds at most
-  60 images per board (extras become placeholders), and the free anonymous
-  path's 20-page cap applies.
+  export stops with a notice instead of sending. The board's JSON is itself
+  capped at 2MB by the service: images embedded in card text count toward
+  that (they are sent as-is), while images placed on the board as file nodes
+  travel in a separate map and do not. The service embeds at most 60 images
+  per board (extras become placeholders), and the free anonymous path's
+  20-page cap applies.
 - Canvas exports use your **Page size** and **Font family**; the font size
   and margin settings apply to note exports only.
 

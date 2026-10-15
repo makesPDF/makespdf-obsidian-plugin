@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   CANVAS_BODY_LIMIT,
+  CANVAS_JSON_LIMIT,
   buildCanvasExport,
   type CanvasExportDeps,
   type CanvasVaultAdapter,
@@ -271,6 +272,77 @@ describe("buildCanvasExport", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("too-large");
+  });
+
+  it("refuses a board whose inlined card embed pushes the canvas over the 2MB cap", async () => {
+    // A card embedding a 1.6MB image base64s inside the canvas JSON to well
+    // over the 2MB the service caps the document at (this is the shape that
+    // reaches the server as a 400 "canvas ... exceeds the 2MB limit").
+    vaultFiles.set("big.png", { extension: "png", bytes: new ArrayBuffer(1_600_000) });
+
+    const result = await buildCanvasExport({
+      canvasText: canvasTextOf([
+        { id: "t", type: "text", text: "![[big.png]]", x: 0, y: 0, width: 300, height: 200 },
+      ]),
+      sourcePath: "Folder/Board.canvas",
+      options,
+      deps,
+    });
+
+    expect(CANVAS_JSON_LIMIT).toBe(2 * 1024 * 1024);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("canvas-too-large");
+      expect(result.message).toContain("2MB");
+      expect(result.message).toContain("try again");
+    }
+  });
+
+  it("refuses an over-cap board before reading any referenced files", async () => {
+    vaultFiles.set("photo.png", { extension: "png", bytes: bufferOf([80, 78, 71]) });
+
+    const result = await buildCanvasExport({
+      canvasText: canvasTextOf([
+        { id: "t", type: "text", text: "card", x: 0, y: 0, width: 10, height: 10 },
+        { id: "f", type: "file", file: "photo.png", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+      sourcePath: "Folder/Board.canvas",
+      options,
+      deps: { ...deps, maxCanvasJsonChars: 32 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("canvas-too-large");
+    // The canvas cap is checked before the files loop runs at all.
+    expect(resolves).toHaveLength(0);
+  });
+
+  it("keys a note file node by node.file and leaves subpath on the node", async () => {
+    vaultFiles.set("notes/spec.md", {
+      extension: "md",
+      text: "# Spec\n\nBody text.",
+    });
+
+    const body = await buildOk(
+      canvasTextOf([
+        {
+          id: "n",
+          type: "file",
+          file: "notes/spec.md",
+          subpath: "#Spec",
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 200,
+        },
+      ]),
+    );
+
+    // The files key is the exact node.file; the subpath rides on the node
+    // and is applied by the server to the whole note this sends.
+    expect(Object.keys(body.files ?? {})).toEqual(["notes/spec.md"]);
+    expect(body.canvas.nodes[0].subpath).toBe("#Spec");
+    expect(body.files?.["notes/spec.md"]?.markdown).toContain("Body text.");
   });
 
   it("reports invalid JSON with a user-facing message", async () => {
