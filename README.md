@@ -25,6 +25,11 @@ exported with the default settings.*
 - Embedded local images are read from your vault and inlined into that same
   request. Embedded notes (`![[note]]`) are inlined too, so their contents are
   sent as well.
+- A canvas export POSTs the board's JSON to
+  `https://makespdf.com/api/v1/canvas`, together with the contents of the
+  files the board references: images and group backgrounds are inlined as
+  data, and linked notes are sent as markdown. The same identification header
+  applies.
 - **Feedback is sent only when you send it.** **Send feedback** (command and
   settings button) and the **Report problem** link on an export error POST to
   `https://makespdf.com/api/v1/feedback` (on your configured API URL). A
@@ -61,11 +66,13 @@ page allowance currently in effect.
 
 ## Usage
 
-- **Command palette:** "Export current note to PDF"
-- **Ribbon icon:** the PDF export button in the left sidebar
+- **Command palette:** "Export current note to PDF" for a Markdown note, or
+  "Export current canvas to PDF" when a `.canvas` board is active
+- **Ribbon icon:** the PDF export button in the left sidebar, which exports
+  the active note or canvas
 
-The PDF is written into your vault, next to the note, or into the folder set in
-**Output folder**. Re-exporting overwrites the previous file.
+The PDF is written into your vault, next to the source file, or into the folder
+set in **Output folder**. Re-exporting overwrites the previous file.
 
 Output paths are relative to the vault root. PDFs are created through Obsidian's
 vault API, so they cannot be written outside the vault: a path like
@@ -90,6 +97,37 @@ export:
 
 Code blocks are syntax highlighted, tables keep their alignment, and footnotes,
 task lists, and Mermaid diagrams render natively.
+
+## Canvas boards (.canvas)
+
+The export works on canvas boards too: the whole board becomes one tagged,
+accessible PDF, with the cards laid out in their board positions and their
+text as real, selectable document content.
+
+![A mood-board canvas exported to PDF: labelled groups, text cards, a link card, labelled connectors, and an extras row with a raster image, a note card and an SVG mark](docs/example-canvas-export.png)
+
+*A mood board exported with the default settings: one board page, with an
+over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
+
+- The board's JSON is sent as-is, apart from each card's text, which is
+  preprocessed like a note's — wikilinks, callouts, highlights and
+  `![[image]]` embeds inside cards work as they do in notes.
+- Images referenced by the board (file nodes and group backgrounds) are read
+  from your vault and inlined. Images over 2400 pixels on their long edge are
+  downscaled before sending.
+- Linked `.md` notes are sent as preprocessed markdown, with their embedded
+  images inlined and the **Properties to include** table applied.
+- Files of other types (PDFs, audio, and so on) are not sent; the server
+  draws a placeholder card naming the file.
+- The request is capped at 25MB. If the board's images would exceed it, the
+  export stops with a notice instead of sending. The board's JSON is itself
+  capped at 2MB by the service: images embedded in card text count toward
+  that (they are sent as-is), while images placed on the board as file nodes
+  travel in a separate map and do not. The service embeds at most 60 images
+  per board (extras become placeholders), and the free anonymous path's
+  20-page cap applies.
+- Canvas exports use your **Page size** and **Font family**; the font size
+  and margin settings apply to note exports only.
 
 ## Settings
 

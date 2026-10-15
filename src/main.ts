@@ -19,6 +19,7 @@ import {
   requestUrl,
 } from "obsidian";
 
+import { buildCanvasExport } from "./canvas";
 import {
   buildProblemContext,
   errorFieldOf,
@@ -29,6 +30,7 @@ import {
   type FeedbackKind,
 } from "./feedback";
 import { buildRenderHeaders } from "./client";
+import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 import {
@@ -237,87 +239,6 @@ async function resolveNoteEmbeds(
   return result;
 }
 
-/** MIME types for image extensions. */
-const IMAGE_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  svg: "image/svg+xml",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  avif: "image/avif",
-};
-
-/**
- * Resolve local image paths in the markdown to data: URIs by reading
- * from the Obsidian vault. Remote URLs (http/https) are left untouched
- * for the API server to fetch.
- */
-async function inlineVaultImages(
-  md: string,
-  vault: { readBinary(file: TFile): Promise<ArrayBuffer> },
-  resolveAttachment: (linkpath: string, sourcePath: string) => TFile | null,
-  sourcePath: string,
-): Promise<string> {
-  // Collect all local image references: ![alt](path) and <img src="path">
-  const localImages = new Map<string, string>(); // path -> data URI
-
-  // Match ![...](path) where path doesn't start with http
-  const mdImageRe = /!\[[^\]]*\]\(([^)]+)\)/g;
-  const htmlImageRe = /<img\s[^>]*src="([^"]+)"/g;
-
-  const paths = new Set<string>();
-  for (const re of [mdImageRe, htmlImageRe]) {
-    let m;
-    while ((m = re.exec(md)) !== null) {
-      const src = m[1];
-      if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
-        paths.add(src);
-      }
-    }
-  }
-
-  // Read each local image from the vault
-  await Promise.all(
-    [...paths].map(async (path) => {
-      try {
-        // Resolve via Obsidian's attachment resolution (handles relative paths, attachment folders)
-        const file = resolveAttachment(path, sourcePath);
-        if (!file) return;
-
-        const ext = file.extension.toLowerCase();
-        const mime = IMAGE_MIME[ext];
-        if (!mime) return;
-
-        const buf = await vault.readBinary(file);
-
-        // Convert to base64 data URI
-        const bytes = new Uint8Array(buf);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const b64 = btoa(binary);
-        localImages.set(path, `data:${mime};base64,${b64}`);
-      } catch {
-        // File not found or unreadable, leave the path as-is
-      }
-    }),
-  );
-
-  if (localImages.size === 0) return md;
-
-  // Replace all local paths with their data URIs
-  let result = md;
-  for (const [path, dataUri] of localImages) {
-    // Escape for use in regex
-    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    result = result.replace(new RegExp(escaped, "g"), dataUri);
-  }
-  return result;
-}
-
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -339,6 +260,17 @@ export default class MakesPdfPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "export-canvas-to-pdf",
+      name: "Export current canvas to PDF",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== "canvas") return false;
+        if (!checking) void this.exportCanvasToPdf(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "send-feedback",
       name: "Send feedback",
       callback: () => this.openFeedback(),
@@ -350,7 +282,11 @@ export default class MakesPdfPlugin extends Plugin {
         new Notice("No active note to export");
         return;
       }
-      await this.exportToPdf(file);
+      if (file.extension === "canvas") {
+        await this.exportCanvasToPdf(file);
+      } else {
+        await this.exportToPdf(file);
+      }
     });
 
     this.addSettingTab(new MakesPdfSettingTab(this.app, this));
@@ -459,16 +395,107 @@ export default class MakesPdfPlugin extends Plugin {
       inputBytes: new TextEncoder().encode(markdown).length,
     };
 
+    const base = (this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl).replace(
+      /\/+$/,
+      "",
+    );
+
+    await this.renderPdf({
+      url: `${base}/api/v1/md`,
+      body: JSON.stringify({
+        markdown,
+        options: {
+          pageSize: this.settings.pageSize,
+          fontFamily: this.settings.fontFamily,
+          fontSize: this.settings.fontSize,
+          margins: this.settings.margins,
+          title: file.basename,
+        },
+      }),
+      sourceFile: file,
+      facts,
+    });
+  }
+
+  /** Export a canvas board via POST /api/v1/canvas. */
+  async exportCanvasToPdf(file: TFile) {
+    if (file.extension !== "canvas") {
+      new Notice("Active file is not a canvas board");
+      return;
+    }
+
+    const canvasText = await this.app.vault.read(file);
+
+    // Fingerprints for "Report problem", as for notes: sizes and settings,
+    // never the board's text or its path. inputBytes becomes the encoded
+    // request size once the body is built.
+    const facts: ExportFailureFacts = {
+      pageSize: this.settings.pageSize,
+      inputBytes: new TextEncoder().encode(canvasText).length,
+    };
+
+    const result = await buildCanvasExport({
+      canvasText,
+      sourcePath: file.path,
+      options: {
+        pageSize: this.settings.pageSize,
+        fontFamily: this.settings.fontFamily,
+        title: file.basename,
+      },
+      deps: {
+        vault: {
+          resolve: (linkpath, sourcePath) =>
+            this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
+          // resolve() hands back the metadata cache's TFile; anything else
+          // has no vault content to read and the builder skips the entry.
+          readText: (target) =>
+            target instanceof TFile
+              ? this.app.vault.read(target)
+              : Promise.reject(new Error("canvas reference is not a vault file")),
+          readBinary: (target) =>
+            target instanceof TFile
+              ? this.app.vault.readBinary(target)
+              : Promise.reject(new Error("canvas reference is not a vault file")),
+        },
+        withPropertyTable: (markdown) => this.withPropertyTable(markdown),
+        createCanvas: () => createEl("canvas"),
+      },
+    });
+
+    if (!result.ok) {
+      this.showExportError(result.message, facts);
+      return;
+    }
+    facts.inputBytes = result.bodyBytes;
+
+    const base = (this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl).replace(
+      /\/+$/,
+      "",
+    );
+
+    await this.renderPdf({
+      url: `${base}/api/v1/canvas`,
+      body: result.body,
+      sourceFile: file,
+      facts,
+    });
+  }
+
+  /**
+   * POST a render body, write the PDF beside the source file (or into the
+   * output folder) and report the outcome — shared by the note and canvas
+   * exports so their request, save and failure paths cannot drift.
+   */
+  private async renderPdf(args: {
+    url: string;
+    body: string;
+    sourceFile: TFile;
+    facts: ExportFailureFacts;
+  }): Promise<void> {
+    const { url, body, sourceFile, facts } = args;
     const notice = new Notice("Exporting to PDF...", 0);
 
     try {
-      const base = (this.settings.apiUrl || DEFAULT_SETTINGS.apiUrl).replace(
-        /\/+$/,
-        "",
-      );
-      const url = `${base}/api/v1/md`;
-      const title = file.basename;
-
       const headers = buildRenderHeaders({
         version: this.manifest.version,
         apiKey: this.settings.apiKey,
@@ -479,16 +506,7 @@ export default class MakesPdfPlugin extends Plugin {
         method: "POST",
         headers,
         throw: false,
-        body: JSON.stringify({
-          markdown,
-          options: {
-            pageSize: this.settings.pageSize,
-            fontFamily: this.settings.fontFamily,
-            fontSize: this.settings.fontSize,
-            margins: this.settings.margins,
-            title,
-          },
-        }),
+        body,
       });
 
       if (response.status !== 200) {
@@ -509,7 +527,7 @@ export default class MakesPdfPlugin extends Plugin {
       }
 
       // Determine output path
-      const pdfName = `${title}.pdf`;
+      const pdfName = `${sourceFile.basename}.pdf`;
       let pdfPath: string;
       if (this.settings.outputFolder.trim()) {
         const folderError = outputFolderError(this.settings.outputFolder);
@@ -524,8 +542,8 @@ export default class MakesPdfPlugin extends Plugin {
         }
         pdfPath = normalizePath(`${folder}/${pdfName}`);
       } else {
-        // Save alongside the source note
-        const dir = file.parent?.path;
+        // Save alongside the source file
+        const dir = sourceFile.parent?.path;
         pdfPath = dir && dir !== "/" ? normalizePath(`${dir}/${pdfName}`) : pdfName;
       }
 
