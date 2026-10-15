@@ -180,6 +180,37 @@ describe("buildCanvasExport", () => {
     expect(resolves).toContainEqual(["photo.png", "notes/spec.md"]);
   });
 
+  it("keeps ^block-id markers in a note file node, but strips them from text cards", async () => {
+    // The server resolves a card's `#^key-block` subpath by finding the
+    // marker in the note text in `files`, then strips it from the rendered
+    // block. A text card has no subpaths, so its marker must not print.
+    vaultFiles.set("notes/spec.md", {
+      extension: "md",
+      text: "# Spec\n\nThe paragraph. ^key-block\n\nAfter.",
+    });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "t", type: "text", text: "Card paragraph. ^card-block", x: 0, y: 0, width: 300, height: 100 },
+        {
+          id: "n",
+          type: "file",
+          file: "notes/spec.md",
+          subpath: "#^key-block",
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 200,
+        },
+      ]),
+    );
+
+    expect(body.canvas.nodes[0].text).toBe("Card paragraph.");
+    expect(body.files?.["notes/spec.md"]?.markdown).toContain("The paragraph. ^key-block");
+    // The subpath still rides on the node; the server applies it.
+    expect(body.canvas.nodes[1].subpath).toBe("#^key-block");
+  });
+
   it("preprocesses text cards and inlines their embeds, leaving the input text untouched", async () => {
     fakeDecode.width = 600;
     fakeDecode.height = 400;

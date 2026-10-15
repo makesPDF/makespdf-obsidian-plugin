@@ -41,20 +41,36 @@ export const CALLOUT_MAP: Record<string, string> = {
   cite: "NOTE",
 };
 
+/** Options for {@link preprocessObsidian}. */
+export interface PreprocessOptions {
+  /**
+   * Keep trailing ` ^block-id` markers instead of stripping them. Canvas
+   * file nodes need them: the server resolves a card's `#^blockid` subpath
+   * by looking for the marker in the note text, then strips it from the
+   * block it renders. Note export leaves this off so the marker never
+   * prints.
+   */
+  keepBlockIds?: boolean;
+}
+
 /**
  * Converts Obsidian-flavoured markdown to GFM-compatible markdown.
  *
  * Handles: wikilinks, image embeds with resize, highlights, comments,
  * block references, tags, callout titles/types, and image resize syntax.
  */
-export function preprocessObsidian(md: string): string {
+export function preprocessObsidian(md: string, options: PreprocessOptions = {}): string {
   let result = md;
 
   // 1. Strip comments %%...%% (block and inline)
   result = result.replace(/%%[\s\S]*?%%/g, "");
 
-  // 2. Strip block reference IDs (trailing ^block-id)
-  result = result.replace(/ \^[\w-]+$/gm, "");
+  // 2. Strip block reference IDs (trailing ^block-id), unless the caller
+  //    needs them kept (canvas note text: the server reads the marker to
+  //    resolve a #^blockid subpath, and strips it from what it renders).
+  if (!options.keepBlockIds) {
+    result = result.replace(/ \^[\w-]+$/gm, "");
+  }
 
   // 3. Image embeds: ![[file.ext]] and ![[file.ext|300]] (files with image extensions)
   result = result.replace(
