@@ -116,7 +116,9 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
   from your vault and inlined. Images over 2400 pixels on their long edge are
   downscaled before sending.
 - Linked `.md` notes are sent as preprocessed markdown, with their embedded
-  images inlined and the **Properties to include** table applied.
+  images inlined and the **Properties to include** table applied. A file
+  node's `#Heading` or `#^blockid` subpath renders just that section or
+  block, not the whole note.
 - Files of other types (PDFs, audio, and so on) are not sent; the server
   draws a placeholder card naming the file.
 - The request is capped at 25MB. If the board's images would exceed it, the
