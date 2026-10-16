@@ -28,7 +28,8 @@ exported with the default settings.*
 - A canvas export POSTs the board's JSON to
   `https://makespdf.com/api/v1/canvas`, together with the contents of the
   files the board references: images and group backgrounds are inlined as
-  data, and linked notes are sent as markdown. The same identification header
+  data, PDFs are sent as file data so their pages can be embedded, and
+  linked notes are sent as markdown. The same identification header
   applies.
 - **Feedback is sent only when you send it.** **Send feedback** (command and
   settings button) and the **Report problem** link on an export error POST to
@@ -119,15 +120,21 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
   images inlined and the **Properties to include** table applied. A file
   node's `#Heading` or `#^blockid` subpath renders just that section or
   block, not the whole note.
-- Files of other types (PDFs, audio, and so on) are not sent; the server
-  draws a placeholder card naming the file.
-- The request is capped at 25MB. If the board's images would exceed it, the
-  export stops with a notice instead of sending. The board's JSON is itself
-  capped at 2MB by the service: images embedded in card text count toward
-  that (they are sent as-is), while images placed on the board as file nodes
-  travel in a separate map and do not. The service embeds at most 60 images
-  per board (extras become placeholders), and the free anonymous path's
-  20-page cap applies.
+- PDF file nodes are sent as file data and the server embeds the PDF's page
+  itself, as vector content. A `#page=N` subpath picks the page; without one
+  it is page 1. At most 10 PDFs per board, 5MB each: a PDF over a limit, or
+  one that cannot be read, is left out and renders as a placeholder card
+  without failing the export. PDFs do not count toward the 60-image budget.
+- Files of other types (audio, and so on) are not sent; the server draws a
+  placeholder card naming the file.
+- The request is capped at 25MB; images, notes and PDFs all count toward
+  it. If the board's files would exceed it, the export stops with a notice
+  instead of sending. The board's JSON is itself capped at 2MB by the
+  service: images embedded in card text count toward that (they are sent
+  as-is), while files placed on the board as file nodes travel in a
+  separate map and do not. The service embeds at most 60 images per board
+  (extras become placeholders), and the free anonymous path's 20-page cap
+  applies.
 - Canvas exports use your **Page size** and **Font family**; the font size
   and margin settings apply to note exports only.
 
