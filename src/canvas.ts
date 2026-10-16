@@ -12,9 +12,11 @@
  *   exact path the canvas references: every `file` node and group
  *   `background` that resolves in the vault, as a `data:` URI (images,
  *   downscaled when over 2400px on the long edge) or as preprocessed
- *   markdown (`.md` notes, with their images inlined and the optional
- *   properties table). Unsupported types are omitted and render as the
- *   server's placeholder cards.
+ *   markdown (`.md` notes, with their images inlined, the optional
+ *   properties table, and ` ^block-id` markers kept so the server can
+ *   resolve `#^blockid` subpaths — it strips the markers from what it
+ *   renders). Unsupported types are omitted and render as the server's
+ *   placeholder cards.
  * - `options` — page size, font family and the canvas name as the title.
  *
  * The endpoint caps two things: the request body at 25MB, and the `canvas`
@@ -205,7 +207,11 @@ async function fileEntry(
     try {
       let text = await deps.vault.readText(file);
       text = deps.withPropertyTable(text);
-      text = preprocessObsidian(text);
+      // Unlike note export, keep ` ^block-id` markers: the server resolves
+      // a card's `#^blockid` subpath by finding the marker in this text, and
+      // strips it from the block it renders. Stripping it here would make
+      // every `#^` subpath fall back to the whole note.
+      text = preprocessObsidian(text, { keepBlockIds: true });
       text = await inlineVaultImages(text, deps.vault, deps.vault.resolve, file.path);
       return { markdown: text };
     } catch {

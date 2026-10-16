@@ -15,6 +15,16 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("Some paragraph ^abc-123")).toBe("Some paragraph");
   });
 
+  it("keeps block reference IDs when asked (canvas note text)", () => {
+    expect(preprocessObsidian("Some paragraph ^abc-123", { keepBlockIds: true })).toBe(
+      "Some paragraph ^abc-123",
+    );
+    // Everything else still converts.
+    expect(
+      preprocessObsidian("para ^abc-123\n\n[[Page]]", { keepBlockIds: true }),
+    ).toBe("para ^abc-123\n\nPage");
+  });
+
   it("converts image embeds", () => {
     expect(preprocessObsidian("![[photo.png]]")).toBe("![photo.png](photo.png)");
     expect(preprocessObsidian("![[photo.png|300]]")).toBe(
