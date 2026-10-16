@@ -10,12 +10,12 @@
  *   file is only ever read, never written.
  * - `files` — the contents the server cannot fetch itself, keyed by the
  *   exact path the canvas references: every `file` node and group
- *   `background` that resolves in the vault, as a `data:` URI (images,
- *   downscaled when over 2400px on the long edge; PDFs, passed through
- *   untouched for the server to embed a page of) or as preprocessed
- *   markdown (`.md` notes, with their images inlined, the optional
- *   properties table, and ` ^block-id` markers kept so the server can
- *   resolve `#^blockid` subpaths — it strips the markers from what it
+ *   `background` that resolves in the vault — images as a `data:` URI
+ *   (downscaled when over 2400px on the long edge), PDFs byte-for-byte as
+ *   `data:application/pdf;base64,…` for the server to embed a page of, and
+ *   `.md` notes as preprocessed markdown (with their images inlined, the
+ *   optional properties table, and ` ^block-id` markers kept so the server
+ *   can resolve `#^blockid` subpaths — it strips the markers from what it
  *   renders). Unsupported types are omitted and render as the server's
  *   placeholder cards, as does a PDF over MAX_CANVAS_PDF_BYTES or past
  *   MAX_CANVAS_PDFS.
