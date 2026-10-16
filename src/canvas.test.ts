@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CANVAS_BODY_LIMIT,
   CANVAS_JSON_LIMIT,
+  MAX_CANVAS_PDF_BYTES,
+  MAX_CANVAS_PDFS,
   buildCanvasExport,
   type CanvasExportDeps,
   type CanvasVaultAdapter,
@@ -31,16 +33,24 @@ interface FakeVaultFile {
   extension: string;
   bytes?: ArrayBuffer;
   text?: string;
+  /** The Obsidian `TFile.stat.size` analogue; omitted when unknown. */
+  statSize?: number;
 }
 
 const vaultFiles = new Map<string, FakeVaultFile>();
 const resolves: Array<[string, string]> = [];
+const binaryReads: string[] = [];
 
 const vault: CanvasVaultAdapter = {
   resolve: (linkpath, sourcePath) => {
     resolves.push([linkpath, sourcePath]);
     const entry = vaultFiles.get(linkpath);
-    return entry ? { path: linkpath, extension: entry.extension } : null;
+    if (!entry) return null;
+    return {
+      path: linkpath,
+      extension: entry.extension,
+      ...(entry.statSize !== undefined ? { stat: { size: entry.statSize } } : {}),
+    };
   },
   readText: async (file) => {
     const entry = vaultFiles.get(file.path);
@@ -48,6 +58,7 @@ const vault: CanvasVaultAdapter = {
     return entry.text;
   },
   readBinary: async (file) => {
+    binaryReads.push(file.path);
     const entry = vaultFiles.get(file.path);
     if (!entry?.bytes) throw new Error(`missing bytes: ${file.path}`);
     return entry.bytes;
@@ -96,6 +107,7 @@ async function buildOk(
 beforeEach(() => {
   vaultFiles.clear();
   resolves.length = 0;
+  binaryReads.length = 0;
   tableCalls.length = 0;
   installImageStubs();
 });
@@ -151,6 +163,161 @@ describe("buildCanvasExport", () => {
     expect(fakeCanvasCalls).toHaveLength(1);
     expect(fakeCanvasCalls[0].width).toBe(2400);
     expect(fakeCanvasCalls[0].height).toBe(1350);
+  });
+
+  it("sends a PDF file node as a data URI under its path", async () => {
+    const pdfBytes = bufferOf([37, 80, 68, 70]);
+
+    vaultFiles.set("docs/report.pdf", { extension: "pdf", bytes: pdfBytes });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "n", type: "file", file: "docs/report.pdf", x: 0, y: 0, width: 400, height: 300 },
+      ]),
+    );
+
+    expect(body.files).toEqual({
+      "docs/report.pdf": { data: bytesToDataUri(new Uint8Array(pdfBytes), "application/pdf") },
+    });
+    expect(resolves).toEqual([["docs/report.pdf", "Folder/Board.canvas"]]);
+    // Byte-for-byte: a PDF never goes near the image encoder.
+    expect(fakeCanvasCalls).toHaveLength(0);
+  });
+
+  it("sends a PDF once for a whole-file and a #page=2 node, leaving the subpath on the node", async () => {
+    const pdfBytes = bufferOf([37, 80, 68, 70]);
+    vaultFiles.set("docs/report.pdf", { extension: "pdf", bytes: pdfBytes });
+    const nodes = [
+      { id: "whole", type: "file", file: "docs/report.pdf", x: 0, y: 0, width: 400, height: 300 },
+      {
+        id: "page2",
+        type: "file",
+        file: "docs/report.pdf",
+        subpath: "#page=2",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+      },
+    ];
+    const raw = canvasTextOf(nodes);
+
+    const body = await buildOk(raw);
+
+    expect(Object.keys(body.files ?? {})).toEqual(["docs/report.pdf"]);
+    expect(binaryReads).toEqual(["docs/report.pdf"]);
+    // The server reads `#page=2` from the board itself.
+    expect(body.canvas.nodes[1].subpath).toBe("#page=2");
+    // Only the parsed copy is transformed; the vault's canvas text is not.
+    const onDisk = JSON.parse(raw) as { nodes: unknown[] };
+    expect(onDisk.nodes).toEqual(nodes);
+    expect(raw).not.toContain("data:");
+  });
+
+  it("omits a PDF over 5MB without failing the export", async () => {
+    vaultFiles.set("big.pdf", {
+      extension: "pdf",
+      bytes: new ArrayBuffer(MAX_CANVAS_PDF_BYTES + 1),
+    });
+    vaultFiles.set("small.pdf", { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "big", type: "file", file: "big.pdf", x: 0, y: 0, width: 10, height: 10 },
+        { id: "small", type: "file", file: "small.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(MAX_CANVAS_PDF_BYTES).toBe(5 * 1024 * 1024);
+    // Over-size is skipped, not read into the request; the rest still goes.
+    expect(Object.keys(body.files ?? {})).toEqual(["small.pdf"]);
+  });
+
+  it("omits an over-5MB PDF from its stat size without reading it", async () => {
+    // No bytes at all: a read would throw, so an empty binaryReads proves
+    // the declared size settled it.
+    vaultFiles.set("big.pdf", { extension: "pdf", statSize: MAX_CANVAS_PDF_BYTES + 1 });
+    vaultFiles.set("small.pdf", { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "big", type: "file", file: "big.pdf", x: 0, y: 0, width: 10, height: 10 },
+        { id: "small", type: "file", file: "small.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(Object.keys(body.files ?? {})).toEqual(["small.pdf"]);
+    expect(binaryReads).toEqual(["small.pdf"]);
+  });
+
+  it("omits a PDF that cannot be read", async () => {
+    // Resolves in the vault but has no bytes: readBinary rejects.
+    vaultFiles.set("broken.pdf", { extension: "pdf" });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "n", type: "file", file: "broken.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(body.files).toBeUndefined();
+    expect(binaryReads).toEqual(["broken.pdf"]);
+  });
+
+  it("does not send a PDF behind a group background, and does not spend the PDF budget on it", async () => {
+    vaultFiles.set("bg.pdf", { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+    const nodes: Array<Record<string, unknown>> = [
+      { id: "g", type: "group", background: "bg.pdf", x: 0, y: 0, width: 100, height: 100 },
+    ];
+    for (let i = 1; i <= MAX_CANVAS_PDFS; i++) {
+      vaultFiles.set(`p${i}.pdf`, { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+      nodes.push({ id: `p${i}`, type: "file", file: `p${i}.pdf`, x: 0, y: 0, width: 10, height: 10 });
+    }
+
+    const body = await buildOk(canvasTextOf(nodes));
+
+    // The image pipeline cannot embed a PDF background, so it is not sent...
+    expect(body.files?.["bg.pdf"]).toBeUndefined();
+    // ...and it spent no budget: all ten file-node PDFs still travel.
+    expect(Object.keys(body.files ?? {})).toEqual(
+      Array.from({ length: MAX_CANVAS_PDFS }, (_, i) => `p${i + 1}.pdf`),
+    );
+  });
+
+  it("omits the 11th PDF — past the 10 PDFs a canvas may carry — without failing the export", async () => {
+    const nodes: Array<Record<string, unknown>> = [];
+    for (let i = 1; i <= 11; i++) {
+      vaultFiles.set(`p${i}.pdf`, { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+      nodes.push({ id: `p${i}`, type: "file", file: `p${i}.pdf`, x: 0, y: 0, width: 10, height: 10 });
+    }
+
+    const body = await buildOk(canvasTextOf(nodes));
+
+    expect(MAX_CANVAS_PDFS).toBe(10);
+    expect(Object.keys(body.files ?? {})).toEqual([
+      "p1.pdf",
+      "p2.pdf",
+      "p3.pdf",
+      "p4.pdf",
+      "p5.pdf",
+      "p6.pdf",
+      "p7.pdf",
+      "p8.pdf",
+      "p9.pdf",
+      "p10.pdf",
+    ]);
+    // The 11th is never read: the budget is spent before the vault is hit.
+    expect(binaryReads).toHaveLength(10);
+  });
+
+  it("omits a PDF that does not resolve in the vault", async () => {
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "n", type: "file", file: "missing.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(body.files).toBeUndefined();
   });
 
   it("sends a note file node as preprocessed markdown with images inlined", async () => {
@@ -234,17 +401,17 @@ describe("buildCanvasExport", () => {
   });
 
   it("omits unsupported file types and unresolvable paths", async () => {
-    vaultFiles.set("report.pdf", { extension: "pdf", bytes: bufferOf([1]) });
+    vaultFiles.set("recording.m4a", { extension: "m4a", bytes: bufferOf([1]) });
 
     const body = await buildOk(
       canvasTextOf([
-        { id: "a", type: "file", file: "report.pdf", x: 0, y: 0, width: 10, height: 10 },
+        { id: "a", type: "file", file: "recording.m4a", x: 0, y: 0, width: 10, height: 10 },
         { id: "b", type: "file", file: "missing.png", x: 0, y: 0, width: 10, height: 10 },
       ]),
     );
 
     expect(body.files).toBeUndefined();
-    expect(resolves.map(([path]) => path)).toEqual(["report.pdf", "missing.png"]);
+    expect(resolves.map(([path]) => path)).toEqual(["recording.m4a", "missing.png"]);
   });
 
   it("sends each referenced path once, even when several nodes use it", async () => {
