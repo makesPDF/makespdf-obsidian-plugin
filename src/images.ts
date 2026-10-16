@@ -14,6 +14,11 @@
 export interface VaultImageFile {
   path: string;
   extension: string;
+  /**
+   * The file's size, when the source knows it (Obsidian's `TFile.stat`), so
+   * callers can apply a size cap before reading the bytes.
+   */
+  stat?: { size: number };
 }
 
 /** MIME types for image extensions. */

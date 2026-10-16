@@ -33,6 +33,8 @@ interface FakeVaultFile {
   extension: string;
   bytes?: ArrayBuffer;
   text?: string;
+  /** The Obsidian `TFile.stat.size` analogue; omitted when unknown. */
+  statSize?: number;
 }
 
 const vaultFiles = new Map<string, FakeVaultFile>();
@@ -43,7 +45,12 @@ const vault: CanvasVaultAdapter = {
   resolve: (linkpath, sourcePath) => {
     resolves.push([linkpath, sourcePath]);
     const entry = vaultFiles.get(linkpath);
-    return entry ? { path: linkpath, extension: entry.extension } : null;
+    if (!entry) return null;
+    return {
+      path: linkpath,
+      extension: entry.extension,
+      ...(entry.statSize !== undefined ? { stat: { size: entry.statSize } } : {}),
+    };
   },
   readText: async (file) => {
     const entry = vaultFiles.get(file.path);
@@ -224,6 +231,57 @@ describe("buildCanvasExport", () => {
     expect(MAX_CANVAS_PDF_BYTES).toBe(5 * 1024 * 1024);
     // Over-size is skipped, not read into the request; the rest still goes.
     expect(Object.keys(body.files ?? {})).toEqual(["small.pdf"]);
+  });
+
+  it("omits an over-5MB PDF from its stat size without reading it", async () => {
+    // No bytes at all: a read would throw, so an empty binaryReads proves
+    // the declared size settled it.
+    vaultFiles.set("big.pdf", { extension: "pdf", statSize: MAX_CANVAS_PDF_BYTES + 1 });
+    vaultFiles.set("small.pdf", { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "big", type: "file", file: "big.pdf", x: 0, y: 0, width: 10, height: 10 },
+        { id: "small", type: "file", file: "small.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(Object.keys(body.files ?? {})).toEqual(["small.pdf"]);
+    expect(binaryReads).toEqual(["small.pdf"]);
+  });
+
+  it("omits a PDF that cannot be read", async () => {
+    // Resolves in the vault but has no bytes: readBinary rejects.
+    vaultFiles.set("broken.pdf", { extension: "pdf" });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "n", type: "file", file: "broken.pdf", x: 0, y: 0, width: 10, height: 10 },
+      ]),
+    );
+
+    expect(body.files).toBeUndefined();
+    expect(binaryReads).toEqual(["broken.pdf"]);
+  });
+
+  it("does not send a PDF behind a group background, and does not spend the PDF budget on it", async () => {
+    vaultFiles.set("bg.pdf", { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+    const nodes: Array<Record<string, unknown>> = [
+      { id: "g", type: "group", background: "bg.pdf", x: 0, y: 0, width: 100, height: 100 },
+    ];
+    for (let i = 1; i <= MAX_CANVAS_PDFS; i++) {
+      vaultFiles.set(`p${i}.pdf`, { extension: "pdf", bytes: bufferOf([37, 80, 68, 70]) });
+      nodes.push({ id: `p${i}`, type: "file", file: `p${i}.pdf`, x: 0, y: 0, width: 10, height: 10 });
+    }
+
+    const body = await buildOk(canvasTextOf(nodes));
+
+    // The image pipeline cannot embed a PDF background, so it is not sent...
+    expect(body.files?.["bg.pdf"]).toBeUndefined();
+    // ...and it spent no budget: all ten file-node PDFs still travel.
+    expect(Object.keys(body.files ?? {})).toEqual(
+      Array.from({ length: MAX_CANVAS_PDFS }, (_, i) => `p${i + 1}.pdf`),
+    );
   });
 
   it("omits the 11th PDF — past the 10 PDFs a canvas may carry — without failing the export", async () => {

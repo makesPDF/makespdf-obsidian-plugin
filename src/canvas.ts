@@ -11,14 +11,16 @@
  * - `files` — the contents the server cannot fetch itself, keyed by the
  *   exact path the canvas references: every `file` node and group
  *   `background` that resolves in the vault — images as a `data:` URI
- *   (downscaled when over 2400px on the long edge), PDFs byte-for-byte as
- *   `data:application/pdf;base64,…` for the server to embed a page of, and
- *   `.md` notes as preprocessed markdown (with their images inlined, the
- *   optional properties table, and ` ^block-id` markers kept so the server
- *   can resolve `#^blockid` subpaths — it strips the markers from what it
- *   renders). Unsupported types are omitted and render as the server's
- *   placeholder cards, as does a PDF over MAX_CANVAS_PDF_BYTES or past
- *   MAX_CANVAS_PDFS.
+ *   (downscaled when over 2400px on the long edge), a `file` node's PDF
+ *   byte-for-byte as `data:application/pdf;base64,…` for the server to
+ *   embed a page of, and `.md` notes as preprocessed markdown (with their
+ *   images inlined, the optional properties table, and ` ^block-id`
+ *   markers kept so the server can resolve `#^blockid` subpaths — it
+ *   strips the markers from what it renders). Unsupported types are
+ *   omitted and render as the server's placeholder cards, as does a PDF
+ *   over MAX_CANVAS_PDF_BYTES or past MAX_CANVAS_PDFS. A PDF behind a
+ *   group `background` is not sent: the server imports PDFs from `file`
+ *   nodes, and its image pipeline cannot embed one.
  * - `options` — page size, font family and the canvas name as the title.
  *
  * The endpoint caps two things: the request body at 25MB, and the `canvas`
@@ -175,6 +177,21 @@ export function referencedPaths(canvas: Record<string, unknown>): string[] {
 }
 
 /**
+ * The paths a `file` node references, as a set. The server only imports
+ * PDFs from `file` nodes; a group `background` goes through the image
+ * pipeline, which cannot embed a PDF, so a PDF behind one is never sent.
+ */
+function pdfFileNodePaths(canvas: Record<string, unknown>): ReadonlySet<string> {
+  const paths = new Set<string>();
+  if (!Array.isArray(canvas.nodes)) return paths;
+  for (const node of canvas.nodes) {
+    if (!isRecord(node)) continue;
+    if (node.type === "file" && typeof node.file === "string") paths.add(node.file);
+  }
+  return paths;
+}
+
+/**
  * Rewrite every text card through the note pipeline (Obsidian syntax to
  * GFM, then local images inlined as data: URIs) so wikilinks and
  * `![[image]]` embeds in cards render like they do in notes.
@@ -205,6 +222,8 @@ async function fileEntry(
   deps: CanvasExportDeps,
   /** Remaining PDFs this request may carry; decremented per PDF sent. */
   pdfBudget: { remaining: number },
+  /** The paths a `file` node references; PDFs elsewhere are not uploaded. */
+  pdfFileNodes: ReadonlySet<string>,
 ): Promise<CanvasFileEntry | null> {
   const file = deps.vault.resolve(path, canvasPath);
   if (!file) return null;
@@ -213,10 +232,17 @@ async function fileEntry(
   if (extension === "pdf") {
     // The server imports one page per `.pdf` file node as vector content and
     // applies the node's `#page=N` subpath itself, so the bytes travel
-    // untouched: no re-encode, no downscale. Over either cap the entry is
-    // left out and the server draws its placeholder card — the export (the
-    // request) still succeeds.
+    // untouched: no re-encode, no downscale. Only a `file` node's PDF is
+    // imported; a group `background` never is, so it is not sent. Over
+    // either cap the entry is left out and the server draws its placeholder
+    // card — the export (the request) still succeeds.
+    if (!pdfFileNodes.has(path)) return null;
     if (pdfBudget.remaining <= 0) return null;
+    // Obsidian's `TFile` carries `stat.size`, so an over-size PDF is
+    // rejected without reading megabytes into memory; the read-time check
+    // below stays the authority for sources that know no size up front.
+    const declaredSize = file.stat?.size;
+    if (declaredSize !== undefined && declaredSize > MAX_CANVAS_PDF_BYTES) return null;
     try {
       const bytes = await deps.vault.readBinary(file);
       if (bytes.byteLength > MAX_CANVAS_PDF_BYTES) return null;
@@ -306,8 +332,9 @@ export async function buildCanvasExport(args: {
   let bytes = canvasJsonChars;
   const files: Record<string, CanvasFileEntry> = {};
   const pdfBudget = { remaining: MAX_CANVAS_PDFS };
+  const pdfFileNodes = pdfFileNodePaths(canvas);
   for (const path of referencedPaths(canvas)) {
-    const entry = await fileEntry(path, sourcePath, deps, pdfBudget);
+    const entry = await fileEntry(path, sourcePath, deps, pdfBudget, pdfFileNodes);
     if (!entry) continue;
     files[path] = entry;
     bytes += JSON.stringify(path).length + 1 + JSON.stringify(entry).length + 1;
