@@ -1,7 +1,7 @@
 # MakesPDF
 
-Export an Obsidian note to a typeset, accessible PDF using the
-[makespdf.com](https://makespdf.com?ref=obsidian) API.
+Export an Obsidian note or canvas board to a typeset, accessible PDF using
+the [makespdf.com](https://makespdf.com?ref=obsidian) API.
 
 Obsidian's built-in export prints the rendered view. This plugin sends the note's
 markdown to a layout service that produces a tagged PDF: real heading structure,
@@ -90,20 +90,29 @@ export:
 | `[[Page]]`, `[[Page\|Alias]]` | plain text (`Page`, `Alias`) |
 | `![[note]]`, `![[note#Heading]]` | the referenced content, inlined (max 3 levels deep) |
 | `![[image.png\|400]]` | a sized image |
-| `==highlight==` | `<mark>` (the API does not yet paint a highlight, so the text renders plain) |
+| `==highlight==` | `<mark>`, painted as a highlight |
 | `%%comment%%` | removed |
 | `#tag`, `#nested/tag` | inline code |
 | `> [!tip]`, `> [!danger]` and other callouts | the closest GFM alert |
 | trailing `^block-id` | removed |
 
 Code blocks are syntax highlighted, tables keep their alignment, and footnotes,
-task lists, and Mermaid diagrams render natively.
+task lists, and Mermaid diagrams render natively. Emoji render in colour, and
+Chinese, Japanese and Korean text renders without installing a font. A
+`lang` property in the note's frontmatter (for example `lang: ja`) picks the
+right CJK glyph forms and sets the PDF's language.
 
 ## Canvas boards (.canvas)
 
 The export works on canvas boards too: the whole board becomes one tagged,
 accessible PDF, with the cards laid out in their board positions and their
-text as real, selectable document content.
+text as real, selectable document content. Cards are drawn the way
+Obsidian's canvas draws them: its heading sizes and spacing, card colours,
+and a linked note's name as a small label above its card.
+
+A card whose text does not fit is first shrunk a little. If it still does
+not fit, it shows what fits and continues on a page of its own, with links
+between the card and its continuation in both directions.
 
 ![A mood-board canvas exported to PDF: labelled groups, text cards, a link card, labelled connectors, and an extras row with a raster image, a note card and an SVG mark](docs/example-canvas-export.png)
 
