@@ -201,6 +201,13 @@ npm test
 To test against a local API service, run the makesPDF app and set **API URL** to
 `http://localhost:8788`.
 
+The sample export near the top of this README, `docs/example-export.png`, is
+generated from `docs/example-note/Q3 Field Notes.md` by
+`npm run generate:example-export`. It runs the note through the plugin's own
+conversion modules and an anonymous render against makespdf.com, so it needs
+network access and `pdftoppm` (poppler). The note's file name supplies its
+title heading, so keep the name and do not add a `#` heading to its body.
+
 To load the plugin into a vault, symlink the repo into the vault's plugin
 folder and enable it under Settings, Community plugins:
 
