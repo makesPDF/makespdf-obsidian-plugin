@@ -97,12 +97,49 @@ export async function inlineVaultImages(
 
   if (localImages.size === 0) return md;
 
-  // Replace all local paths with their data URIs
-  let result = md;
-  for (const [path, dataUri] of localImages) {
-    // Escape for use in regex
-    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    result = result.replace(new RegExp(escaped, "g"), dataUri);
-  }
-  return result;
+  // Swap each local path for its data URI, but ONLY where the path is the
+  // image's destination — the `(…)` of `![alt](dest)` or the `src` of
+  // `<img src="…">`.
+  //
+  // This used to be a blind global replace over the whole document, which
+  // rewrote every occurrence of the path — in prose, in other images' alt
+  // text, anywhere. The harmful cases were:
+  //
+  //   - the alt became the data URI, which doubled the request body and made
+  //     the writer use the base64 blob as the figure's `/Alt` in the tagged
+  //     PDF, so a screen reader read tens of thousands of characters of
+  //     base64 instead of the file name;
+  //   - an alt naming a *different*, inlineable image was swapped as well;
+  //   - one path being a prefix of another (`a.png` vs `a.png.bak.png`) made
+  //     the outcome depend on map order.
+  //
+  // An exact key lookup, scoped to the destination, fixes all three.
+  const swap = (dest: string): string => {
+    const direct = localImages.get(dest);
+    if (direct) return direct;
+
+    // `![alt](path "title")` — the destination span carries the title too, so
+    // look the path up on its own rather than losing the inline. (Only
+    // reachable when the same path is also referenced without a title, since
+    // an unresolvable `path "title"` never makes it into the map.)
+    //
+    // Lazy, not `\S+`: a path may contain spaces (`my photo.png`), and a
+    // greedy-on-non-space split would leave `my photo.png "the photo"` alone
+    // and silently drop the image.
+    const titled = /^(.+?)(\s+["'(].*)$/.exec(dest);
+    if (titled) {
+      const uri = localImages.get(titled[1]);
+      if (uri) return `${uri}${titled[2]}`;
+    }
+
+    return dest;
+  };
+
+  return md
+    .replace(/(!\[[^\]]*\]\()([^)]+)(\))/g, (_m, pre: string, dest: string, post: string) =>
+      `${pre}${swap(dest)}${post}`,
+    )
+    .replace(/(<img\s[^>]*src=")([^"]+)(")/g, (_m, pre: string, dest: string, post: string) =>
+      `${pre}${swap(dest)}${post}`,
+    );
 }
