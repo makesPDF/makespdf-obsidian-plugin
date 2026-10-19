@@ -102,6 +102,25 @@ Chinese, Japanese and Korean text renders without installing a font. A
 `lang` property in the note's frontmatter (for example `lang: ja`) picks the
 right CJK glyph forms and sets the PDF's language.
 
+### The note title
+
+The note's file name is printed as a top-level heading at the top of the PDF,
+the same title Obsidian shows above the body, and the PDF's own document title
+is set to it as well. It goes below any frontmatter and above the
+**Properties to include** table, so the page reads the way Obsidian's reading
+view does: title, properties, body.
+
+If the note already opens with its own `# heading`, the title is still printed
+and the note will have both, matching what Obsidian's reading view shows.
+
+The heading is the file name, and so is the PDF's document title — Obsidian
+shows the file name as the inline title regardless of any other property, and
+this follows suit. A `title` key in the note's frontmatter therefore does not
+override either one: the export sends the file name as an explicit option, and
+an explicit option wins over frontmatter. The other frontmatter option keys
+(`pageSize`, `fontFamily`, `fontSize`, `margins`, `lang`, `author`, `subject`,
+`keywords`) are unaffected.
+
 ## Canvas boards (.canvas)
 
 The export works on canvas boards too: the whole board becomes one tagged,

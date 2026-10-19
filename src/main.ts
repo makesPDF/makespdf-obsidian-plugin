@@ -32,6 +32,7 @@ import {
 import { buildRenderHeaders } from "./client";
 import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
+import { withNoteTitle } from "./note-title";
 import { preprocessObsidian } from "./preprocess";
 import { resolveNoteEmbeds } from "./note-embeds";
 import {
@@ -218,9 +219,12 @@ export default class MakesPdfPlugin extends Plugin {
       return;
     }
 
-    // 1. Prepend the whitelisted properties table, if any. This runs before
-    //    the Obsidian-to-GFM pass so the inserted markdown is converted too.
-    const source = this.withPropertyTable(rawMarkdown);
+    // 1. Prepend the note's own title as an H1, and the whitelisted
+    //    properties table if any. Both run before the Obsidian-to-GFM pass so
+    //    the inserted markdown is converted too. The title goes on top of the
+    //    table, matching Obsidian's reading view: inline title, properties,
+    //    body.
+    const source = withNoteTitle(this.withPropertyTable(rawMarkdown), file.basename);
 
     // 2. Resolve note embeds (recursive, with depth + size limits)
     let markdown = await resolveNoteEmbeds(
