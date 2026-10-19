@@ -1,42 +1,27 @@
-Export Obsidian canvas boards to PDF, and send feedback to the MakesPDF team.
+Images in notes export again, and the note's title is printed at the top of the PDF.
 
-## Canvas boards (.canvas)
+## Fixes
 
-- **Export a canvas.** With a `.canvas` board open, the ribbon button or the
-  new **Export current canvas to PDF** command turns the whole board into one
-  tagged, accessible PDF (PDF/A-2A and PDF/UA-1). Cards keep their board
-  positions, and their text is real, selectable document content, styled like
-  Obsidian's own canvas.
-- **Everything on the board comes along.** Text cards, linked notes (a
-  `#Heading` or `#^blockid` subpath renders just that section or block),
-  images, SVGs, group labels, colours and backgrounds, link cards and labelled
-  connectors.
-- **PDFs on the board are embedded as vector pages.** A `#page=N` subpath
-  picks the page. Up to 10 PDFs per board, 5MB each; a PDF over a limit, or
-  one that cannot be embedded, renders as a placeholder card instead of
-  failing the export.
-- **Long cards are not cut off.** A card whose text does not fit is shrunk a
-  little, then continued on its own page, linked to and from the board.
-- **Emoji and CJK text render.** Emoji in colour; Chinese, Japanese and Korean
-  text without installing a font.
-- Canvas exports use your **Page size** and **Font family** settings. Requests
-  are capped at 25MB and boards at 60 images. See the README's "Canvas boards"
-  section for the full list of limits.
+- **Image embeds render.** In 1.1.0 an Obsidian image embed such as
+  `![[photo.png]]` exported as the line *See: photo.png* instead of the image.
+  Embedded images now appear in the PDF again, on desktop and mobile.
+- **Image alt text is the file name.** An embedded image's alt text in the
+  tagged PDF is the image's file name, which is what screen readers announce.
+  It was previously replaced by the image data itself.
 
-## Feedback
+## Note title
 
-- **Report problem.** When an export fails, the error notice has a
-  **Report problem** link. It opens a short form; your message is sent with a
-  few facts about the failure (HTTP status, error code, page size, and the
-  size of the export request in bytes). The note's text, its path and your
-  vault name are never sent.
-- **Send feedback.** A new command and a button in the plugin settings open
-  the same form, where you can send a problem, an idea or praise. Feedback
-  works without an API key.
-- Exports and feedback identify the plugin to the makesPDF API in the
-  `X-MakesPDF-Client` header (`obsidian/<version>`), so renders can be
-  attributed to the Obsidian plugin. See the README's "Network use and
-  privacy" section for exactly what each request contains.
+- **The title is printed as the top heading.** A note export now starts with
+  the note's file name as a top-level heading, the same title Obsidian shows
+  above the body. It goes below any frontmatter and above the
+  **Properties to include** table, matching Obsidian's reading view.
+- If a note already opens with its own `# heading`, the PDF has both, as
+  Obsidian's reading view does.
+- A `title` key in the note's frontmatter does not replace the printed title
+  or the PDF's document title; both use the file name. See the README's
+  "The note title" section.
+
+Canvas exports are unchanged.
 
 Release assets carry a build provenance attestation:
 
