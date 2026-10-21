@@ -8,7 +8,6 @@ import {
   asErrorCode,
   buildFeedbackRequest,
   buildProblemContext,
-  errorFieldOf,
   sendFeedback,
   validateFeedbackMessage,
   type FeedbackRequest,
@@ -138,13 +137,5 @@ describe("sendFeedback", () => {
       status: "failed",
       error: "Unauthorized (HTTP 401)",
     });
-  });
-});
-
-describe("errorFieldOf", () => {
-  it("reads the error field of a JSON body", () => {
-    expect(errorFieldOf('{"error":"page-cap-exceeded","limit":20}')).toBe("page-cap-exceeded");
-    expect(errorFieldOf("<html>")).toBeUndefined();
-    expect(errorFieldOf('{"message":"x"}')).toBeUndefined();
   });
 });

@@ -22,7 +22,6 @@ import {
 import { buildCanvasExport } from "./canvas";
 import {
   buildProblemContext,
-  errorFieldOf,
   sendFeedback,
   validateFeedbackMessage,
   type ExportFailureFacts,
@@ -30,6 +29,7 @@ import {
   type FeedbackKind,
 } from "./feedback";
 import { buildRenderHeaders } from "./client";
+import { describeRenderFailure } from "./render-error";
 import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
 import { withNoteTitle } from "./note-title";
@@ -167,11 +167,31 @@ export default class MakesPdfPlugin extends Plugin {
     new FeedbackModal(this.app, this, problem ? buildProblemContext(problem) : undefined).open();
   }
 
-  /** Error notice with a "Report problem" link that opens the feedback modal. */
-  private showExportError(message: string, facts: ExportFailureFacts) {
+  /**
+   * Error notice with a "Report problem" link that opens the feedback modal.
+   * `offerSettingsLink` adds a link to this plugin's settings tab, for the
+   * failures the user fixes there (the anonymous page cap).
+   */
+  private showExportError(
+    message: string,
+    facts: ExportFailureFacts,
+    offerSettingsLink = false,
+  ) {
     const fragment = createFragment((frag) => {
       frag.appendText(message);
       frag.createEl("br");
+      if (offerSettingsLink) {
+        const settingsLink = frag.createEl("a", {
+          text: "Open settings",
+          href: "#",
+        });
+        settingsLink.addEventListener("click", (event) => {
+          event.preventDefault();
+          notice.hide();
+          this.openPluginSettings();
+        });
+        frag.appendText(" \u00b7 ");
+      }
       const link = frag.createEl("a", { text: "Report problem", href: "#" });
       link.addEventListener("click", (event) => {
         event.preventDefault();
@@ -179,8 +199,22 @@ export default class MakesPdfPlugin extends Plugin {
         this.openFeedback(facts);
       });
     });
-    // Long enough to reach the link; a click anywhere else dismisses it.
+    // Long enough to reach the links; a click anywhere else dismisses it.
     const notice = new Notice(fragment, 15_000);
+  }
+
+  /**
+   * Open this plugin's tab in Obsidian's settings modal. `App.setting` is not
+   * in the public typings, so it is feature-detected: a build without it
+   * leaves the link a no-op rather than throwing.
+   */
+  private openPluginSettings() {
+    const settings = (
+      this.app as unknown as {
+        setting?: { openTabById?: (pluginId: string) => void };
+      }
+    ).setting;
+    settings?.openTabById?.(this.manifest.id);
   }
 
   /**
@@ -370,20 +404,20 @@ export default class MakesPdfPlugin extends Plugin {
       });
 
       if (response.status !== 200) {
+        notice.hide();
         facts.httpStatus = response.status;
-        let detail = `HTTP ${response.status}`;
-        const serverError = errorFieldOf(new TextDecoder().decode(response.arrayBuffer));
-        if (serverError !== undefined) {
-          detail = serverError;
-          facts.errorCode = serverError;
-        }
-        if (
-          (response.status === 429 || response.status === 413) &&
-          !this.settings.apiKey
-        ) {
-          detail += ". Add an API key in the MakesPDF settings for higher limits.";
-        }
-        throw new Error(detail);
+        const failure = describeRenderFailure({
+          status: response.status,
+          bodyText: new TextDecoder().decode(response.arrayBuffer),
+          hasApiKey: Boolean(this.settings.apiKey),
+        });
+        facts.errorCode = failure.errorCode;
+        this.showExportError(
+          `PDF export failed: ${failure.message}`,
+          facts,
+          failure.offerSettingsLink,
+        );
+        return;
       }
 
       // Determine output path
