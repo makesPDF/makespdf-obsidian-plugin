@@ -30,6 +30,7 @@ import {
 } from "./feedback";
 import { buildRenderHeaders } from "./client";
 import { describeRenderFailure } from "./render-error";
+import { openPluginSettingsTab, type SettingsModalApp } from "./plugin-settings";
 import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
 import { withNoteTitle } from "./note-title";
@@ -205,16 +206,12 @@ export default class MakesPdfPlugin extends Plugin {
 
   /**
    * Open this plugin's tab in Obsidian's settings modal. `App.setting` is not
-   * in the public typings, so it is feature-detected: a build without it
-   * leaves the link a no-op rather than throwing.
+   * in the public typings, so the helper feature-detects it: a build without
+   * it leaves the link a no-op rather than throwing.
    */
   private openPluginSettings() {
-    const settings = (
-      this.app as unknown as {
-        setting?: { openTabById?: (pluginId: string) => void };
-      }
-    ).setting;
-    settings?.openTabById?.(this.manifest.id);
+    // `App.setting` exists at runtime but is not in the public typings.
+    openPluginSettingsTab(this.app as unknown as SettingsModalApp, this.manifest.id);
   }
 
   /**

@@ -74,10 +74,22 @@ describe("describeRenderFailure", () => {
       hasApiKey: false,
     });
 
-    expect(failure.message).toContain("page-cap-exceeded");
-    expect(failure.message).toContain(API_KEY_HINT);
+    // The counts ride along, as they do in the VS Code plugin, so the fallback
+    // is not a bare code when the server told us the figures.
+    expect(failure.message).toBe(`page-cap-exceeded (42 pages, cap 20). ${API_KEY_HINT}`);
     expect(failure.errorCode).toBe("page-cap-exceeded");
     expect(failure.offerSettingsLink).toBe(true);
+  });
+
+  it("falls back to the bare code when the page counts are missing", () => {
+    const failure = describeRenderFailure({
+      status: 400,
+      bodyText: '{"error":"page-cap-exceeded"}',
+      hasApiKey: true,
+    });
+
+    expect(failure.message).toBe("page-cap-exceeded");
+    expect(failure.offerSettingsLink).toBe(false);
   });
 
   it("falls back to HTTP <status> for a non-JSON body", () => {
@@ -108,7 +120,8 @@ describe("describeRenderFailure", () => {
         hasApiKey: false,
       });
       expect(anon.message).toBe(`rate-limited. ${API_KEY_HINT}`);
-      expect(anon.offerSettingsLink).toBe(false);
+      // The hint names the settings, so the notice must offer a way there.
+      expect(anon.offerSettingsLink).toBe(true);
 
       const authed = describeRenderFailure({
         status,
@@ -116,6 +129,7 @@ describe("describeRenderFailure", () => {
         hasApiKey: true,
       });
       expect(authed.message).toBe("rate-limited");
+      expect(authed.offerSettingsLink).toBe(false);
     }
   });
 

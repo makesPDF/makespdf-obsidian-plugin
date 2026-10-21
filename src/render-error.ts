@@ -33,7 +33,7 @@ export interface RenderFailure {
   message: string;
   /** The code-shaped `error` value for the feedback context; never a sentence. */
   errorCode?: string;
-  /** Page cap with no API key: the notice also offers a link to the plugin settings. */
+  /** The notice also offers a link to the plugin settings tab where the API key is set. */
   offerSettingsLink: boolean;
 }
 
@@ -83,14 +83,33 @@ function withHint(text: string, hint: string): string {
 }
 
 /**
+ * The page counts the server sends with `page-cap-exceeded`, for the case
+ * where it sends no `message` sentence. Mirrors makespdf-vscode-plugin, which
+ * spells the same figures out as "(42 pages, cap 20)".
+ */
+function pageCapDetail(body: RenderErrorBody): string | undefined {
+  if (body.error !== "page-cap-exceeded") return undefined;
+  if (body.limit === undefined || body.actual === undefined) return undefined;
+  return `${body.actual} pages, cap ${body.limit}`;
+}
+
+/** What the notice says before the hint: the server's sentence, else its code (with page counts), else the status. */
+function failureText(status: number, body: RenderErrorBody): string {
+  if (body.message !== undefined) return body.message;
+  if (body.error === undefined) return `HTTP ${status}`;
+  const detail = pageCapDetail(body);
+  return detail ? `${body.error} (${detail})` : body.error;
+}
+
+/**
  * Describe a non-200 render response for the user. `message` wins over the
  * bare code because it is the server explaining itself; the code remains the
  * fallback and, when code-shaped, the only part the feedback payload receives.
  *
  * The API-key hint is offered whenever the user's anonymous request could be
  * fixed by a key: the page cap (a 400) and the rate-limit / size limits
- * (429 / 413). The settings link is page-cap only — that is the failure the
- * hint's setting actually removes.
+ * (429 / 413). The settings link rides with the hint, so every notice that
+ * tells the user to add a key in the settings also offers a way there.
  */
 export function describeRenderFailure(args: {
   status: number;
@@ -101,13 +120,13 @@ export function describeRenderFailure(args: {
   const errorCode = asErrorCode(body.error);
   const pageCapExceeded = errorCode === "page-cap-exceeded";
 
-  const text = body.message ?? body.error ?? `HTTP ${args.status}`;
+  const text = failureText(args.status, body);
   const hintApplies =
     !args.hasApiKey && (pageCapExceeded || args.status === 429 || args.status === 413);
 
   return {
     message: hintApplies ? withHint(text, API_KEY_HINT) : text,
     errorCode,
-    offerSettingsLink: pageCapExceeded && !args.hasApiKey,
+    offerSettingsLink: hintApplies,
   };
 }
