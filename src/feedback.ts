@@ -179,16 +179,3 @@ export async function sendFeedback(
   }
   return { status: "failed", error: detail };
 }
-
-/** The server's `error` value from a failed render response body, if any. */
-export function errorFieldOf(bodyText: string): string | undefined {
-  try {
-    const body: unknown = JSON.parse(bodyText);
-    if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string") {
-      return body.error;
-    }
-  } catch {
-    // Not JSON.
-  }
-  return undefined;
-}
