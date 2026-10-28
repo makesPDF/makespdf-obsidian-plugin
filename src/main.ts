@@ -12,6 +12,7 @@ import {
   parseYaml,
   Plugin,
   PluginSettingTab,
+  requireApiVersion,
   Setting,
   type SettingDefinitionItem,
   TFile,
@@ -34,6 +35,15 @@ import { openPluginSettingsTab, type SettingsModalApp } from "./plugin-settings"
 import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
 import { withNoteTitle } from "./note-title";
+import {
+  PAGE_NUMBER_FORMATS,
+  PAGE_NUMBER_POSITIONS,
+  buildExportOptions,
+  isPageNumberFormat,
+  isPageNumberPosition,
+  type PageNumberFormat,
+  type PageNumberPosition,
+} from "./page-numbers";
 import { preprocessObsidian } from "./preprocess";
 import { resolveNoteEmbeds } from "./note-embeds";
 import {
@@ -53,6 +63,8 @@ interface MakesPdfSettings {
   fontFamily: "Inter" | "NotoSans";
   fontSize: number;
   margins: [number, number, number, number];
+  pageNumbers: PageNumberFormat;
+  pageNumberPosition: PageNumberPosition;
   outputFolder: string;
   includeProperties: string;
 }
@@ -64,6 +76,8 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   fontFamily: "Inter",
   fontSize: 10,
   margins: [40, 40, 40, 40],
+  pageNumbers: "off",
+  pageNumberPosition: "right",
   outputFolder: "",
   includeProperties: "",
 };
@@ -73,6 +87,10 @@ const API_KEY_DESC =
   "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.";
 const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
+const PAGE_NUMBERS_DESC =
+  "Print a page number in the footer of exported notes. Off by default. When this is Off, a pageNumbers property in the note's frontmatter is used instead.";
+const PAGE_NUMBER_POSITION_DESC =
+  "Where the page number sits in the footer. Only used when page numbers are on.";
 const OUTPUT_FOLDER_DESC =
   "A folder inside your vault. Leave empty to save alongside the note. PDFs are written into the vault, so paths outside it (such as ~/Downloads) are not supported.";
 const INCLUDE_PROPERTIES_DESC =
@@ -153,6 +171,16 @@ export default class MakesPdfPlugin extends Plugin {
   async loadSettings() {
     const stored = (await this.loadData()) as Partial<MakesPdfSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
+
+    // `data.json` is user-editable, and a value the API does not accept would
+    // leave the dropdown with nothing selected and the request silently
+    // footerless. Fall back to the defaults instead.
+    if (!isPageNumberFormat(this.settings.pageNumbers)) {
+      this.settings.pageNumbers = DEFAULT_SETTINGS.pageNumbers;
+    }
+    if (!isPageNumberPosition(this.settings.pageNumberPosition)) {
+      this.settings.pageNumberPosition = DEFAULT_SETTINGS.pageNumberPosition;
+    }
   }
 
   async saveSettings() {
@@ -295,13 +323,21 @@ export default class MakesPdfPlugin extends Plugin {
       url: `${base}/api/v1/md`,
       body: JSON.stringify({
         markdown,
-        options: {
-          pageSize: this.settings.pageSize,
-          fontFamily: this.settings.fontFamily,
-          fontSize: this.settings.fontSize,
-          margins: this.settings.margins,
-          title: file.basename,
-        },
+        // Built in one tested helper (page-numbers.ts): the page-number keys
+        // are absent entirely when the setting is Off, which both keeps the
+        // request unchanged for existing users and lets the note's own
+        // frontmatter keys take effect (explicit options win over frontmatter).
+        options: buildExportOptions(
+          {
+            pageSize: this.settings.pageSize,
+            fontFamily: this.settings.fontFamily,
+            fontSize: this.settings.fontSize,
+            margins: this.settings.margins,
+          },
+          file.basename,
+          this.settings.pageNumbers,
+          this.settings.pageNumberPosition,
+        ),
       }),
       sourceFile: file,
       facts,
@@ -665,6 +701,31 @@ class MakesPdfSettingTab extends PluginSettingTab {
             },
           },
           {
+            name: "Page numbers",
+            desc: PAGE_NUMBERS_DESC,
+            aliases: ["footer", "pagination", "numbering"],
+            control: {
+              type: "dropdown",
+              key: "pageNumbers",
+              options: PAGE_NUMBER_FORMATS,
+              defaultValue: DEFAULT_SETTINGS.pageNumbers,
+            },
+          },
+          {
+            name: "Page number position",
+            desc: PAGE_NUMBER_POSITION_DESC,
+            aliases: ["footer", "align"],
+            control: {
+              type: "dropdown",
+              key: "pageNumberPosition",
+              options: PAGE_NUMBER_POSITIONS,
+              defaultValue: DEFAULT_SETTINGS.pageNumberPosition,
+              // The position only matters while a format is chosen, so leave
+              // it greyed out at Off (as the /markdown tool does).
+              disabled: () => this.plugin.settings.pageNumbers === "off",
+            },
+          },
+          {
             name: "Output folder",
             desc: OUTPUT_FOLDER_DESC,
             aliases: ["destination", "save location"],
@@ -696,6 +757,22 @@ class MakesPdfSettingTab extends PluginSettingTab {
         action: () => this.plugin.openFeedback(),
       },
     ];
+  }
+
+  /**
+   * Persist a control's value through the plugin's own settings object, then
+   * re-evaluate the declarative predicates: the page-number position control
+   * is disabled while the format is Off, and `disabled` is only evaluated on
+   * render, so a format change has to refresh the DOM state.
+   *
+   * Both APIs are 1.13.0+, and this method only exists for the declarative
+   * renderer that version adds; older versions use display().
+   */
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    if (requireApiVersion("1.13.0")) {
+      await super.setControlValue(key, value);
+      if (key === "pageNumbers") this.refreshDomState();
+    }
   }
 
   /** Fallback renderer for Obsidian versions older than 1.13.0. */
@@ -766,6 +843,42 @@ class MakesPdfSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.fontSize)
           .onChange(async (value) => {
             this.plugin.settings.fontSize = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Page numbers")
+      .setDesc(PAGE_NUMBERS_DESC)
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(PAGE_NUMBER_FORMATS)
+          .setValue(this.plugin.settings.pageNumbers)
+          .onChange(async (value) => {
+            const wasOff = this.plugin.settings.pageNumbers === "off";
+            this.plugin.settings.pageNumbers =
+              value as MakesPdfSettings["pageNumbers"];
+            await this.plugin.saveSettings();
+            // The position control is disabled while the format is Off, so
+            // re-render when the format crosses that boundary.
+            if (wasOff !== (this.plugin.settings.pageNumbers === "off")) {
+              this.display();
+            }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Page number position")
+      .setDesc(PAGE_NUMBER_POSITION_DESC)
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(PAGE_NUMBER_POSITIONS)
+          .setValue(this.plugin.settings.pageNumberPosition)
+          // No effect while the format is Off, so leave it greyed out.
+          .setDisabled(this.plugin.settings.pageNumbers === "off")
+          .onChange(async (value) => {
+            this.plugin.settings.pageNumberPosition =
+              value as MakesPdfSettings["pageNumberPosition"];
             await this.plugin.saveSettings();
           }),
       );
