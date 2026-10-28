@@ -121,6 +121,36 @@ an explicit option wins over frontmatter. The other frontmatter option keys
 (`pageSize`, `fontFamily`, `fontSize`, `margins`, `lang`, `author`, `subject`,
 `keywords`) are unaffected.
 
+### Page numbers
+
+Note exports can print a page number in the footer. Choose the format and
+where it sits in **Page numbers** and **Page number position**:
+
+| Setting | Options | Default |
+|---|---|---|
+| Page numbers | Off, Page 3 of 12, 3 / 12, 3 | Off |
+| Page number position | Right, Center, Left | Right |
+
+Off is the default, so existing exports are unchanged: while the format is
+Off, the plugin sends no page-number option at all. That also leaves a note's
+own properties in charge. A note with
+
+```yaml
+---
+pageNumbers: page-n-of-total
+pageNumberPosition: left
+---
+```
+
+gets that format and position for its export. The formats are
+`page-n-of-total` ("Page 3 of 12"), `n-of-total` ("3 / 12") and `n` ("3"); the
+positions are `left`, `center` and `right`. An explicit setting wins over the
+note's property, as the other export options do: with the format set to
+anything but Off, the setting's format and position are used for every note.
+
+Page numbers apply to note exports only; canvas boards have no page-number
+option.
+
 ## Canvas boards (.canvas)
 
 The export works on canvas boards too: the whole board becomes one tagged,
@@ -163,8 +193,8 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
   separate map and do not. The service embeds at most 60 images per board
   (extras become placeholders), and the free anonymous path's 20-page cap
   applies.
-- Canvas exports use your **Page size** and **Font family**; the font size
-  and margin settings apply to note exports only.
+- Canvas exports use your **Page size** and **Font family**; the font size,
+  margin and page-number settings apply to note exports only.
 
 ## Settings
 
@@ -175,6 +205,8 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 | Page size | A4 | A3, A4, A5, Letter, or Legal |
 | Font family | Inter | Inter or Noto Sans |
 | Font size | 10 | Points, 6 to 24 |
+| Page numbers | Off | Footer page numbers: Off, Page 3 of 12, 3 / 12, or 3. Off uses a note's own `pageNumbers` property, if any. |
+| Page number position | Right | Left, Center, or Right. Only used when page numbers are on. |
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
 | Properties to include | empty | Comma-separated property names to print as a table at the top of the PDF, for example `status, owner, due`. Empty prints none; `*` prints every property. |
 | Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
