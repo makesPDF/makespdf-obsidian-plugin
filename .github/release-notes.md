@@ -1,27 +1,27 @@
-Images in notes export again, and the note's title is printed at the top of the PDF.
+Note exports can print page numbers in the footer, and a failed export now says why.
+
+## Page numbers
+
+- **New settings: Page numbers and Page number position.** Choose a format
+  (*Page 3 of 12*, *3 / 12* or *3*) and put it at the left, center or right
+  of the footer. Page numbers are off by default, so existing exports are
+  unchanged until you pick a format.
+- **Per-note frontmatter works too.** With the setting off, a note can turn
+  page numbers on for itself with `pageNumbers` and `pageNumberPosition`
+  properties. When the setting is on, it applies to every note export and
+  takes precedence over a note's own properties. See the README's
+  "Page numbers" section.
+
+Canvas exports are unchanged.
 
 ## Fixes
 
-- **Image embeds render.** In 1.1.0 an Obsidian image embed such as
-  `![[photo.png]]` exported as the line *See: photo.png* instead of the image.
-  Embedded images now appear in the PDF again, on desktop and mobile.
-- **Image alt text is the file name.** An embedded image's alt text in the
-  tagged PDF is the image's file name, which is what screen readers announce.
-  It was previously replaced by the image data itself.
-
-## Note title
-
-- **The title is printed as the top heading.** A note export now starts with
-  the note's file name as a top-level heading, the same title Obsidian shows
-  above the body. It goes below any frontmatter and above the
-  **Properties to include** table, matching Obsidian's reading view.
-- If a note already opens with its own `# heading`, the PDF has both, as
-  Obsidian's reading view does.
-- A `title` key in the note's frontmatter does not replace the printed title
-  or the PDF's document title; both use the file name. See the README's
-  "The note title" section.
-
-Canvas exports are unchanged.
+- **Export errors show the server's message.** A failed export used to show
+  only an error code, such as *page-cap-exceeded*. The notice now shows the
+  explanation the server returns, including the page count and the limit.
+- **The "Open settings" link opens settings.** The link in the page-limit,
+  rate-limit and file-size notices now opens the settings window on the
+  MakesPDF tab. Previously the click closed the notice and nothing opened.
 
 Release assets carry a build provenance attestation:
 
