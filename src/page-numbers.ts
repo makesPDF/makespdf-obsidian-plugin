@@ -42,6 +42,14 @@ export interface PageNumberOptions {
   pageNumberPosition?: PageNumberPosition;
 }
 
+/** The note's own export options, everything except the page-number fields. */
+export interface NoteExportOptions {
+  pageSize: string;
+  fontFamily: string;
+  fontSize: number;
+  margins: [number, number, number, number];
+}
+
 /** True for a value this plugin can send as `pageNumbers`. */
 export function isPageNumberFormat(value: unknown): value is PageNumberFormat {
   return (
@@ -79,4 +87,22 @@ export function pageNumberOptions(
     pageNumbers: format,
     ...(isPageNumberPosition(position) ? { pageNumberPosition: position } : {}),
   };
+}
+
+/**
+ * The complete `options` object for one note export: the typography and title
+ * options plus the page-number fields when the format is on.
+ *
+ * `main.ts` sends this straight through as the request body's `options`, so
+ * the page-number keys are assembled in one tested place rather than spread
+ * into the body by hand: a misplaced spread would put them at the body root,
+ * where the API strips them and the footer silently never prints.
+ */
+export function buildExportOptions(
+  core: NoteExportOptions,
+  title: string,
+  format: unknown,
+  position: unknown,
+): NoteExportOptions & { title: string } & PageNumberOptions {
+  return { ...core, title, ...pageNumberOptions(format, position) };
 }

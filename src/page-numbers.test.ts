@@ -3,12 +3,51 @@ import { describe, expect, it } from "vitest";
 import {
   PAGE_NUMBER_FORMATS,
   PAGE_NUMBER_POSITIONS,
+  buildExportOptions,
   isPageNumberFormat,
   isPageNumberPosition,
   pageNumberOptions,
 } from "./page-numbers";
 import { withNoteTitle } from "./note-title";
 import { preprocessObsidian } from "./preprocess";
+
+describe("buildExportOptions", () => {
+  const core = {
+    pageSize: "A4",
+    fontFamily: "Inter",
+    fontSize: 10,
+    margins: [40, 40, 40, 40] as [number, number, number, number],
+  };
+
+  it("puts the page-number keys inside the options object when on", () => {
+    // main.ts sends this object as the body's `options`, so pinning the whole
+    // object is what keeps the keys out of the body root (where the API
+    // strips them and the footer never prints) and in the request at all.
+    expect(buildExportOptions(core, "My Note", "page-n-of-total", "center")).toEqual({
+      pageSize: "A4",
+      fontFamily: "Inter",
+      fontSize: 10,
+      margins: [40, 40, 40, 40],
+      title: "My Note",
+      pageNumbers: "page-n-of-total",
+      pageNumberPosition: "center",
+    });
+  });
+
+  it("sends neither page-number key at the default (off)", () => {
+    const options = buildExportOptions(core, "My Note", "off", "right");
+
+    expect(options).toEqual({
+      pageSize: "A4",
+      fontFamily: "Inter",
+      fontSize: 10,
+      margins: [40, 40, 40, 40],
+      title: "My Note",
+    });
+    expect("pageNumbers" in options).toBe(false);
+    expect("pageNumberPosition" in options).toBe(false);
+  });
+});
 
 describe("pageNumberOptions", () => {
   it("sends nothing when page numbers are off", () => {

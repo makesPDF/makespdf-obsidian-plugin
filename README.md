@@ -118,8 +118,8 @@ shows the file name as the inline title regardless of any other property, and
 this follows suit. A `title` key in the note's frontmatter therefore does not
 override either one: the export sends the file name as an explicit option, and
 an explicit option wins over frontmatter. The other frontmatter option keys
-(`pageSize`, `fontFamily`, `fontSize`, `margins`, `lang`, `author`, `subject`,
-`keywords`) are unaffected.
+(`pageSize`, `fontFamily`, `fontSize`, `margins`, `pageNumbers`,
+`pageNumberPosition`, `lang`, `author`, `subject`, `keywords`) are unaffected.
 
 ### Page numbers
 
@@ -149,7 +149,9 @@ note's property, as the other export options do: with the format set to
 anything but Off, the setting's format and position are used for every note.
 
 Page numbers apply to note exports only; canvas boards have no page-number
-option.
+option. These options need a makespdf.com server that accepts the
+`pageNumbers` and `pageNumberPosition` markdown options: an older deployment
+ignores them, or rejects the export when a format is chosen.
 
 ## Canvas boards (.canvas)
 
@@ -206,7 +208,7 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 | Font family | Inter | Inter or Noto Sans |
 | Font size | 10 | Points, 6 to 24 |
 | Page numbers | Off | Footer page numbers: Off, Page 3 of 12, 3 / 12, or 3. Off uses a note's own `pageNumbers` property, if any. |
-| Page number position | Right | Left, Center, or Right. Only used when page numbers are on. |
+| Page number position | Right | Right, Center, or Left. Only used when page numbers are on. |
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
 | Properties to include | empty | Comma-separated property names to print as a table at the top of the PDF, for example `status, owner, due`. Empty prints none; `*` prints every property. |
 | Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
