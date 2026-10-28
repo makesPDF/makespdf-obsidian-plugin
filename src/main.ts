@@ -34,6 +34,13 @@ import { openPluginSettingsTab, type SettingsModalApp } from "./plugin-settings"
 import { inlineVaultImages } from "./images";
 import { outputFolderError } from "./output-folder";
 import { withNoteTitle } from "./note-title";
+import {
+  PAGE_NUMBER_FORMATS,
+  PAGE_NUMBER_POSITIONS,
+  pageNumberOptions,
+  type PageNumberFormat,
+  type PageNumberPosition,
+} from "./page-numbers";
 import { preprocessObsidian } from "./preprocess";
 import { resolveNoteEmbeds } from "./note-embeds";
 import {
@@ -53,6 +60,8 @@ interface MakesPdfSettings {
   fontFamily: "Inter" | "NotoSans";
   fontSize: number;
   margins: [number, number, number, number];
+  pageNumbers: PageNumberFormat;
+  pageNumberPosition: PageNumberPosition;
   outputFolder: string;
   includeProperties: string;
 }
@@ -64,6 +73,8 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   fontFamily: "Inter",
   fontSize: 10,
   margins: [40, 40, 40, 40],
+  pageNumbers: "off",
+  pageNumberPosition: "right",
   outputFolder: "",
   includeProperties: "",
 };
@@ -73,6 +84,10 @@ const API_KEY_DESC =
   "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.";
 const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
+const PAGE_NUMBERS_DESC =
+  "Print a page number in the footer of exported notes. Off by default. When this is Off, a pageNumbers property in the note's frontmatter is used instead.";
+const PAGE_NUMBER_POSITION_DESC =
+  "Where the page number sits in the footer. Only used when page numbers are on.";
 const OUTPUT_FOLDER_DESC =
   "A folder inside your vault. Leave empty to save alongside the note. PDFs are written into the vault, so paths outside it (such as ~/Downloads) are not supported.";
 const INCLUDE_PROPERTIES_DESC =
@@ -300,6 +315,13 @@ export default class MakesPdfPlugin extends Plugin {
           fontFamily: this.settings.fontFamily,
           fontSize: this.settings.fontSize,
           margins: this.settings.margins,
+          // Absent entirely when the setting is Off, which both keeps the
+          // request unchanged for existing users and lets the note's own
+          // frontmatter keys take effect (explicit options win over frontmatter).
+          ...pageNumberOptions(
+            this.settings.pageNumbers,
+            this.settings.pageNumberPosition,
+          ),
           title: file.basename,
         },
       }),
@@ -665,6 +687,28 @@ class MakesPdfSettingTab extends PluginSettingTab {
             },
           },
           {
+            name: "Page numbers",
+            desc: PAGE_NUMBERS_DESC,
+            aliases: ["footer", "pagination", "numbering"],
+            control: {
+              type: "dropdown",
+              key: "pageNumbers",
+              options: PAGE_NUMBER_FORMATS,
+              defaultValue: DEFAULT_SETTINGS.pageNumbers,
+            },
+          },
+          {
+            name: "Page number position",
+            desc: PAGE_NUMBER_POSITION_DESC,
+            aliases: ["footer", "align"],
+            control: {
+              type: "dropdown",
+              key: "pageNumberPosition",
+              options: PAGE_NUMBER_POSITIONS,
+              defaultValue: DEFAULT_SETTINGS.pageNumberPosition,
+            },
+          },
+          {
             name: "Output folder",
             desc: OUTPUT_FOLDER_DESC,
             aliases: ["destination", "save location"],
@@ -766,6 +810,34 @@ class MakesPdfSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.fontSize)
           .onChange(async (value) => {
             this.plugin.settings.fontSize = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Page numbers")
+      .setDesc(PAGE_NUMBERS_DESC)
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(PAGE_NUMBER_FORMATS)
+          .setValue(this.plugin.settings.pageNumbers)
+          .onChange(async (value) => {
+            this.plugin.settings.pageNumbers =
+              value as MakesPdfSettings["pageNumbers"];
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Page number position")
+      .setDesc(PAGE_NUMBER_POSITION_DESC)
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(PAGE_NUMBER_POSITIONS)
+          .setValue(this.plugin.settings.pageNumberPosition)
+          .onChange(async (value) => {
+            this.plugin.settings.pageNumberPosition =
+              value as MakesPdfSettings["pageNumberPosition"];
             await this.plugin.saveSettings();
           }),
       );
