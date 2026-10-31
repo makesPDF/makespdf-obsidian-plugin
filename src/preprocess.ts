@@ -127,14 +127,20 @@ export function preprocessObsidian(md: string, options: PreprocessOptions = {}):
     (_match, lead: string, tag: string) => `${lead}\`#${tag}\``,
   );
 
-  // 9. Callouts: convert Obsidian types/titles to GFM alerts
+  // 9. Callouts: convert Obsidian types to GFM alerts
   //    > [!type]  or  > [!type] Title  or  > [!type]- / > [!type]+
+  //    A title stays on the marker line: the server shows it in the alert
+  //    header, next to the icon, in place of the type name. The blank quoted
+  //    line after it ends that paragraph, so a body starting with `---`,
+  //    `2.` or an indented line keeps its own block type instead of joining
+  //    the marker line (a `---` would make it a setext heading).
   result = result.replace(
     /^(>\s*)\[!(\w+)\]([+-])?(?:[ \t]+(.+))?$/gm,
     (_match, prefix: string, type: string, _foldable?: string, title?: string) => {
       const gfmType = CALLOUT_MAP[type.toLowerCase()] ?? "NOTE";
-      const titleLine = title ? `\n${prefix}**${title}**\n${prefix}` : "";
-      return `${prefix}[!${gfmType}]${titleLine}`;
+      return title
+        ? `${prefix}[!${gfmType}] ${title.trim()}\n${prefix.trimEnd()}`
+        : `${prefix}[!${gfmType}]`;
     },
   );
 
