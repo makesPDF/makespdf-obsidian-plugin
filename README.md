@@ -93,7 +93,7 @@ export:
 | `==highlight==` | `<mark>`, painted as a highlight |
 | `%%comment%%` | removed |
 | `#tag`, `#nested/tag` | inline code |
-| `> [!tip]`, `> [!danger]` and other callouts | the closest GFM alert |
+| `> [!tip]`, `> [!danger]` and other callouts | the closest GFM alert, with its icon; a custom title stays in the header |
 | trailing `^block-id` | removed |
 
 Code blocks are syntax highlighted, tables keep their alignment, and footnotes,

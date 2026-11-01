@@ -87,9 +87,20 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("> [!bug]\n> content")).toBe("> [!CAUTION]\n> content");
   });
 
-  it("handles callout titles", () => {
+  it("keeps callout titles on the marker line", () => {
     expect(preprocessObsidian("> [!tip] My Custom Title\n> content")).toBe(
-      "> [!TIP]\n> **My Custom Title**\n> \n> content",
+      "> [!TIP] My Custom Title\n>\n> content",
+    );
+    expect(preprocessObsidian("> [!info] Informasi\n> **Example**")).toBe(
+      "> [!NOTE] Informasi\n>\n> **Example**",
+    );
+    expect(preprocessObsidian("> [!attention]- Perhatian!\n> body")).toBe(
+      "> [!WARNING] Perhatian!\n>\n> body",
+    );
+    // The blank quoted line keeps a `---` body from turning the title line
+    // into a setext heading.
+    expect(preprocessObsidian("> [!tip] Title\n> ---\n> body")).toBe(
+      "> [!TIP] Title\n>\n> ---\n> body",
     );
   });
 
@@ -140,7 +151,7 @@ Some paragraph with a reference ^ref-1
 
     // Callout mapped
     expect(output).toContain("[!CAUTION]");
-    expect(output).toContain("**Security Issue**");
+    expect(output).toContain("[!CAUTION] Security Issue");
 
     // Block ref stripped
     expect(output).not.toContain("^ref-1");
