@@ -51,6 +51,64 @@ describe("inlineVaultImages", () => {
     expect(result).toBe("before ![photo](data:image/png;base64,UE5H) after");
   });
 
+  it("inlines an angle-bracket destination and drops the brackets", async () => {
+    const name = "Ahriman (in the guise of a serpent).jpg";
+    const { vault, resolveAttachment, resolves } = makeVault({
+      [name]: { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer },
+    });
+    const out = await inlineVaultImages(`![x](<${name}>)`, vault, resolveAttachment, "note.md");
+    expect(resolves).toEqual([[name, "note.md"]]);
+    expect(out).toBe("![x](data:image/jpeg;base64,AQID)");
+  });
+
+  it("inlines bare destinations holding balanced parentheses", async () => {
+    const files = { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer };
+    const { vault, resolveAttachment } = makeVault({ "a(b).jpg": files, "c (d).jpg": files });
+    const out = await inlineVaultImages(
+      "![x](a(b).jpg) and ![y](c (d).jpg)",
+      vault,
+      resolveAttachment,
+      "note.md",
+    );
+    expect(out).toBe(
+      "![x](data:image/jpeg;base64,AQID) and ![y](data:image/jpeg;base64,AQID)",
+    );
+  });
+
+  it("keeps the title after an angle-bracket destination", async () => {
+    const { vault, resolveAttachment } = makeVault({
+      "a (b).jpg": { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer },
+    });
+    const out = await inlineVaultImages(
+      '![x](<a (b).jpg> "the title")',
+      vault,
+      resolveAttachment,
+      "note.md",
+    );
+    expect(out).toBe('![x](data:image/jpeg;base64,AQID "the title")');
+  });
+
+  it("leaves an unresolvable angle-bracket destination as written", async () => {
+    const { vault, resolveAttachment } = makeVault({});
+    const md = "![x](<gone (1).jpg>)";
+    expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
+  });
+
+  it("does not stall on an unterminated destination full of parentheses", async () => {
+    const { vault, resolveAttachment } = makeVault({});
+    const md = `![x](${"(a)".repeat(50_000)}`;
+    const started = Date.now();
+    expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("leaves a multi-megabyte data URI untouched", async () => {
+    const { vault, resolveAttachment, resolves } = makeVault({});
+    const md = `![x](data:image/png;base64,${"A".repeat(8_000_000)})`;
+    expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
+    expect(resolves).toEqual([]);
+  });
+
   it("replaces paths inside <img src> tags too", async () => {
     const { vault, resolveAttachment } = makeVault({
       "logo.svg": { extension: "svg", bytes: bytesOf("<svg/>") },

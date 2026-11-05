@@ -137,7 +137,7 @@ describe("resolveNoteEmbeds", () => {
     // already `![inner.png](inner.png)` here — still a markdown image for the
     // inliner that runs over the whole string afterwards.
     const out = await run("![[Other]]", { Other: "text ![[inner.png]]" });
-    expect(out).toContain("![inner.png](inner.png)");
+    expect(out).toContain("![inner.png](<inner.png>)");
     expect(out).not.toContain("See:");
   });
 
@@ -147,6 +147,13 @@ describe("resolveNoteEmbeds", () => {
     const out = await runExportPipeline("here is an image\n![[photo.jpg]]");
     expect(out).toContain("data:image/jpeg;base64,");
     expect(out).not.toContain("See:");
+  });
+
+  it("turns an image embed with parentheses in its name into an inlined image", async () => {
+    for (const name of ["Ahriman (in the guise of a serpent).jpg", "a(b).jpg", "the serpent.jpg"]) {
+      const out = await runExportPipeline(`![[${name}]]`);
+      expect(out).toBe(`![${name}](data:image/jpeg;base64,iVBORw==)`);
+    }
   });
 
   it("turns a sized image embed into a sized inlined image", async () => {

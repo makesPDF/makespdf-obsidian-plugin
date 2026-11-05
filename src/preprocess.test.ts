@@ -25,8 +25,21 @@ describe("preprocessObsidian", () => {
     ).toBe("para ^abc-123\n\nPage");
   });
 
+  it("writes an image embed's file name as an angle-bracket destination", () => {
+    expect(preprocessObsidian("![[a (b).jpg]]")).toBe("![a (b).jpg](<a (b).jpg>)");
+  });
+
+  it("converts sized standard images whose path holds parentheses", () => {
+    expect(preprocessObsidian("![logo|200](a(b).png)")).toBe(
+      '<img src="a(b).png" width="200" alt="logo">',
+    );
+    expect(preprocessObsidian("![logo|200](<a (b).png>)")).toBe(
+      '<img src="a (b).png" width="200" alt="logo">',
+    );
+  });
+
   it("converts image embeds", () => {
-    expect(preprocessObsidian("![[photo.png]]")).toBe("![photo.png](photo.png)");
+    expect(preprocessObsidian("![[photo.png]]")).toBe("![photo.png](<photo.png>)");
     expect(preprocessObsidian("![[photo.png|300]]")).toBe(
       '<img src="photo.png" width="300" alt="photo.png">',
     );
