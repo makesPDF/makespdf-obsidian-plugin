@@ -134,7 +134,7 @@ describe("resolveNoteEmbeds", () => {
 
   it("carries an image embed out of an embedded note for the image pass", async () => {
     // preprocessObsidian runs on embedded content too, so the inner embed is
-    // already `![inner.png](inner.png)` here — still a markdown image for the
+    // already `![inner.png](<inner.png>)` here — still a markdown image for the
     // inliner that runs over the whole string afterwards.
     const out = await run("![[Other]]", { Other: "text ![[inner.png]]" });
     expect(out).toContain("![inner.png](<inner.png>)");
@@ -150,7 +150,14 @@ describe("resolveNoteEmbeds", () => {
   });
 
   it("turns an image embed with parentheses in its name into an inlined image", async () => {
-    for (const name of ["Ahriman (in the guise of a serpent).jpg", "a(b).jpg", "the serpent.jpg"]) {
+    for (const name of [
+      "Ahriman (in the guise of a serpent).jpg",
+      "a(b).jpg",
+      "a(b c.jpg",
+      "a>(b c.jpg",
+      "a<b c.jpg",
+      "the serpent.jpg",
+    ]) {
       const out = await runExportPipeline(`![[${name}]]`);
       expect(out).toBe(`![${name}](data:image/jpeg;base64,iVBORw==)`);
     }

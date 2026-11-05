@@ -10,7 +10,7 @@
  * guard on the unresolved-embed fallback below.
  *
  * Image embeds are deliberately NOT resolved here: they are left exactly as
- * written for preprocessObsidian (`![[image.png]]` -> `![image.png](image.png)`)
+ * written for preprocessObsidian (`![[image.png]]` -> `![image.png](<image.png>)`)
  * and inlineVaultImages (path -> `data:` URI) to handle.
  */
 

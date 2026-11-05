@@ -75,6 +75,34 @@ describe("inlineVaultImages", () => {
     );
   });
 
+  it("inlines a bare destination with an unbalanced parenthesis", async () => {
+    const files = { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer };
+    const { vault, resolveAttachment } = makeVault({ "a(b.jpg": files, "a(b c.jpg": files });
+    const out = await inlineVaultImages(
+      "![x](a(b.jpg) and (a note) ![y](a(b c.jpg)",
+      vault,
+      resolveAttachment,
+      "note.md",
+    );
+    expect(out).toBe(
+      "![x](data:image/jpeg;base64,AQID) and (a note) ![y](data:image/jpeg;base64,AQID)",
+    );
+  });
+
+  it("unescapes angle brackets in a destination before the vault lookup", async () => {
+    const { vault, resolveAttachment, resolves } = makeVault({
+      "a>(b c.jpg": { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer },
+    });
+    const out = await inlineVaultImages(
+      "![x](<a\\>(b c.jpg>)",
+      vault,
+      resolveAttachment,
+      "note.md",
+    );
+    expect(resolves).toEqual([["a>(b c.jpg", "note.md"]]);
+    expect(out).toBe("![x](data:image/jpeg;base64,AQID)");
+  });
+
   it("keeps the title after an angle-bracket destination", async () => {
     const { vault, resolveAttachment } = makeVault({
       "a (b).jpg": { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer },
@@ -94,12 +122,14 @@ describe("inlineVaultImages", () => {
     expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
   });
 
-  it("does not stall on an unterminated destination full of parentheses", async () => {
+  it("does not stall on an unterminated destination", async () => {
     const { vault, resolveAttachment } = makeVault({});
-    const md = `![x](${"(a)".repeat(50_000)}`;
-    const started = Date.now();
-    expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
-    expect(Date.now() - started).toBeLessThan(1000);
+    for (const tail of ["(a)".repeat(50_000), " ".repeat(160_000), "\t".repeat(160_000)]) {
+      const md = `![x](${tail}`;
+      const started = Date.now();
+      expect(await inlineVaultImages(md, vault, resolveAttachment, "note.md")).toBe(md);
+      expect(Date.now() - started).toBeLessThan(2000);
+    }
   });
 
   it("leaves a multi-megabyte data URI untouched", async () => {

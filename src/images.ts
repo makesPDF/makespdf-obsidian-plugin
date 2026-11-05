@@ -34,25 +34,33 @@ export const IMAGE_MIME: Record<string, string> = {
 };
 
 /**
- * A markdown image destination, as regex source with one capture group: an
- * angle-bracket destination (`<my (1).png>`), or a bare one that may hold
- * spaces and balanced parentheses (`a(b).png`, `my photo.png "title"`).
- * Stopping at the first `)` instead would cut `a (b).png` to `a (b`.
+ * A markdown image destination, as regex source with one capture group. In
+ * order of preference:
  *
- * The bare form is written as an unrolled loop because nesting the
- * quantifiers backtracks exponentially on an unterminated `![a](xxxx`.
+ *   - angle brackets, with `<` and `>` escaped inside: `<my (1).png>`
+ *   - bare, with spaces and balanced parentheses: `a(b).png`, `my photo.png "t"`
+ *   - bare, up to the first `)`, for an unbalanced `(`: `a(b.png`
+ *
+ * Stopping at the first `)` every time would cut `a (b).png` to `a (b`. The
+ * balanced form is an unrolled loop because nesting the quantifiers
+ * backtracks exponentially on an unterminated `![a](xxxx`.
  */
-export const MD_IMAGE_DEST = String.raw`(<[^>\n]*>|[^()\n]*(?:\([^()\n]*\)[^()\n]*)*)`;
+export const MD_IMAGE_DEST = String.raw`(<(?:\\.|[^<>\n\\])*>|[^()\n]*(?:\([^()\n]*\)[^()\n]*)*|[^)\n]+)`;
 
-/** `<path>` -> `path`; anything else is returned as written. */
+/** `<a\>b.png>` -> `a>b.png`; a destination with no brackets is returned as written. */
 export function unwrapImageDest(dest: string): string {
-  return dest.startsWith("<") && dest.endsWith(">") ? dest.slice(1, -1) : dest;
+  if (!dest.startsWith("<") || !dest.endsWith(">")) return dest;
+  return dest.slice(1, -1).replace(/\\([<>])/g, "$1");
 }
 
-/** `![alt](dest)`, with an optional title after an angle-bracket destination. */
+/**
+ * `![alt](dest)`, with an optional title after an angle-bracket destination.
+ * The whitespace before a title is bounded: `\s+` would rescan a long blank
+ * run from every position the destination gives back, which is quadratic.
+ */
 function mdImagePattern(): RegExp {
   return new RegExp(
-    String.raw`(!\[[^\]]*\]\()${MD_IMAGE_DEST}((?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\))`,
+    String.raw`(!\[[^\]]*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
     "g",
   );
 }
@@ -76,7 +84,7 @@ export async function inlineVaultImages(
   // Collect all local image references: ![alt](path) and <img src="path">
   const localImages = new Map<string, string>(); // path -> data URI
 
-  // Match ![...](path) where path doesn't start with http
+  // Each pattern's destination group; http(s) and data: paths are skipped below.
   const htmlImageRe = /<img\s[^>]*src="([^"]+)"/g;
 
   const paths = new Set<string>();

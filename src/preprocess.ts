@@ -85,8 +85,9 @@ export function preprocessObsidian(md: string, options: PreprocessOptions = {}):
         return `<img src="${path}" width="${size}" alt="${path}">`;
       }
       // Angle brackets: a vault file name can hold spaces and parentheses,
-      // which a bare markdown destination cannot.
-      return `![${path}](<${path}>)`;
+      // which a bare markdown destination cannot. `<` and `>` end or break
+      // that form, so they are escaped (macOS and Linux allow them in names).
+      return `![${path}](<${path.replace(/[<>]/g, "\\$&")}>)`;
     },
   );
 

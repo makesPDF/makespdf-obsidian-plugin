@@ -29,6 +29,16 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("![[a (b).jpg]]")).toBe("![a (b).jpg](<a (b).jpg>)");
   });
 
+  it("escapes angle brackets in an image embed's destination only", () => {
+    expect(preprocessObsidian("![[a<b>c.jpg]]")).toBe("![a<b>c.jpg](<a\\<b\\>c.jpg>)");
+  });
+
+  it("converts sized standard images with an unbalanced parenthesis", () => {
+    expect(preprocessObsidian("![logo|200](a(b.png)")).toBe(
+      '<img src="a(b.png" width="200" alt="logo">',
+    );
+  });
+
   it("converts sized standard images whose path holds parentheses", () => {
     expect(preprocessObsidian("![logo|200](a(b).png)")).toBe(
       '<img src="a(b).png" width="200" alt="logo">',
