@@ -1,13 +1,14 @@
-Callout titles now appear in the callout header, next to its icon.
+Images whose file names contain parentheses now appear in the PDF.
 
 ## Fixes
 
-- **Callout titles stay in the header.** A callout with a title, such as
-  `> [!info] Details`, used to export with the type name ("Note") in the
-  header and the title on a separate line below it. The title now replaces
-  the type name in the header, as it does in Obsidian, and the header shows
-  an icon for the callout type. Callouts without a title show the type name
-  with its icon.
+- **Image file names with parentheses.** An embed such as
+  `![[Photo (2024).jpg]]` printed as text in the PDF instead of showing the
+  image. Export the note again and the image appears. Names containing `<` or
+  `>`, and standard images written as `![alt](a(b).png)`, work too.
+
+An embedded image that is not in your vault now leaves a gap in the PDF, where
+some names used to print as text.
 
 Release assets carry a build provenance attestation:
 
