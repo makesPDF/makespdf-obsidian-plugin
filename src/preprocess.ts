@@ -5,6 +5,8 @@
  * unit tested directly (see preprocess.test.ts).
  */
 
+import { MD_IMAGE_DEST, unwrapImageDest } from "./images";
+
 /**
  * Map of Obsidian callout types to the closest GFM alert type.
  * Types not listed here default to NOTE.
@@ -82,7 +84,10 @@ export function preprocessObsidian(md: string, options: PreprocessOptions = {}):
       } else if (size) {
         return `<img src="${path}" width="${size}" alt="${path}">`;
       }
-      return `![${path}](${path})`;
+      // Angle brackets: a vault file name can hold spaces and parentheses,
+      // which a bare markdown destination cannot. `<` and `>` end or break
+      // that form, so they are escaped (macOS and Linux allow them in names).
+      return `![${path}](<${path.replace(/[<>]/g, "\\$&")}>)`;
     },
   );
 
@@ -108,8 +113,9 @@ export function preprocessObsidian(md: string, options: PreprocessOptions = {}):
 
   // 7. Image resize in standard syntax: ![alt|300](url) -> <img>
   result = result.replace(
-    /!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(([^)]+)\)/g,
-    (_match, alt: string, size: string, url: string) => {
+    new RegExp(String.raw`!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(${MD_IMAGE_DEST}\)`, "g"),
+    (_match, alt: string, size: string, dest: string) => {
+      const url = unwrapImageDest(dest);
       if (size.includes("x")) {
         const [w, h] = size.split("x");
         return `<img src="${url}" width="${w}" height="${h}" alt="${alt}">`;

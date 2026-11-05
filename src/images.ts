@@ -33,6 +33,38 @@ export const IMAGE_MIME: Record<string, string> = {
   avif: "image/avif",
 };
 
+/**
+ * A markdown image destination, as regex source with one capture group. In
+ * order of preference:
+ *
+ *   - angle brackets, with `<` and `>` escaped inside: `<my (1).png>`
+ *   - bare, with spaces and balanced parentheses: `a(b).png`, `my photo.png "t"`
+ *   - bare, up to the first `)`, for an unbalanced `(`: `a(b.png`
+ *
+ * Stopping at the first `)` every time would cut `a (b).png` to `a (b`. The
+ * balanced form is an unrolled loop because nesting the quantifiers
+ * backtracks exponentially on an unterminated `![a](xxxx`.
+ */
+export const MD_IMAGE_DEST = String.raw`(<(?:\\.|[^<>\n\\])*>|[^()\n]*(?:\([^()\n]*\)[^()\n]*)*|[^)\n]+)`;
+
+/** `<a\>b.png>` -> `a>b.png`; a destination with no brackets is returned as written. */
+export function unwrapImageDest(dest: string): string {
+  if (!dest.startsWith("<") || !dest.endsWith(">")) return dest;
+  return dest.slice(1, -1).replace(/\\([<>])/g, "$1");
+}
+
+/**
+ * `![alt](dest)`, with an optional title after an angle-bracket destination.
+ * The whitespace before a title is bounded: `\s+` would rescan a long blank
+ * run from every position the destination gives back, which is quadratic.
+ */
+function mdImagePattern(): RegExp {
+  return new RegExp(
+    String.raw`(!\[[^\]]*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
+    "g",
+  );
+}
+
 /** The one vault method inlining needs. */
 export interface VaultImageSource {
   readBinary(file: VaultImageFile): Promise<ArrayBuffer>;
@@ -52,15 +84,17 @@ export async function inlineVaultImages(
   // Collect all local image references: ![alt](path) and <img src="path">
   const localImages = new Map<string, string>(); // path -> data URI
 
-  // Match ![...](path) where path doesn't start with http
-  const mdImageRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+  // Each pattern's destination group; http(s) and data: paths are skipped below.
   const htmlImageRe = /<img\s[^>]*src="([^"]+)"/g;
 
   const paths = new Set<string>();
-  for (const re of [mdImageRe, htmlImageRe]) {
+  for (const [re, group] of [
+    [mdImagePattern(), 2],
+    [htmlImageRe, 1],
+  ] as const) {
     let m;
     while ((m = re.exec(md)) !== null) {
-      const src = m[1];
+      const src = unwrapImageDest(m[group] ?? "");
       if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
         paths.add(src);
       }
@@ -115,7 +149,8 @@ export async function inlineVaultImages(
   //
   // An exact key lookup, scoped to the destination, fixes all three.
   const swap = (dest: string): string => {
-    const direct = localImages.get(dest);
+    // The data URI needs no angle brackets, so they go with the path.
+    const direct = localImages.get(unwrapImageDest(dest));
     if (direct) return direct;
 
     // `![alt](path "title")` — the destination span carries the title too, so
@@ -136,7 +171,7 @@ export async function inlineVaultImages(
   };
 
   return md
-    .replace(/(!\[[^\]]*\]\()([^)]+)(\))/g, (_m, pre: string, dest: string, post: string) =>
+    .replace(mdImagePattern(), (_m, pre: string, dest: string, post: string) =>
       `${pre}${swap(dest)}${post}`,
     )
     .replace(/(<img\s[^>]*src=")([^"]+)(")/g, (_m, pre: string, dest: string, post: string) =>
