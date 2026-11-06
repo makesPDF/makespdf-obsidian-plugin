@@ -232,9 +232,6 @@ npm run typecheck
 npm test
 ```
 
-To test against a local API service, run the makesPDF app and set **API URL** to
-`http://localhost:8788`.
-
 The sample export near the top of this README, `docs/example-export.png`, is
 generated from `docs/example-note/Q3 Field Notes.md` by
 `npm run generate:example-export`. It runs the note through the plugin's own
