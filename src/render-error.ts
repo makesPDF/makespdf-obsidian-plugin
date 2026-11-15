@@ -120,8 +120,9 @@ function failureText(status: number, body: RenderErrorBody): string {
  * A 401 is the key being wrong rather than the request: the server's own
  * `invalid-api-key` code, or any 401 on a request that carried a key, is shown
  * as "Invalid API key" with the settings link, whatever wording the body has.
- * A 401 with no key configured is not the key's fault and keeps the generic
- * text (the server only answers `invalid-api-key` with a rejected bearer).
+ * The code names the key even when the plugin believes none is configured
+ * (defensive: the current server only answers `invalid-api-key` with a
+ * rejected bearer); a keyless 401 without that code keeps the generic text.
  *
  * The API-key hint is offered whenever the user's anonymous request could be
  * fixed by a key: the page cap (a 400) and the rate-limit / size limits

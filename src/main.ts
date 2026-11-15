@@ -21,7 +21,8 @@ import {
 } from "obsidian";
 
 import { buildCanvasExport } from "./canvas";
-import { DEFAULT_API_URL, apiKeyFormatWarning, normalizeApiKey } from "./api-key";
+import { DEFAULT_API_URL, normalizeApiKey, normalizeApiSettings } from "./api-key";
+import { API_KEY_DESC, drawApiKeySetting } from "./api-key-setting";
 import {
   buildProblemContext,
   sendFeedback,
@@ -84,8 +85,6 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
 };
 
 /** Setting copy and options, shared by both settings renderers below. */
-const API_KEY_DESC =
-  "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.";
 const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
 const PAGE_NUMBERS_DESC =
@@ -173,9 +172,17 @@ export default class MakesPdfPlugin extends Plugin {
     const stored = (await this.loadData()) as Partial<MakesPdfSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
 
-    // `data.json` is user-editable, and a value the API does not accept would
-    // leave the dropdown with nothing selected and the request silently
-    // footerless. Fall back to the defaults instead.
+    // `data.json` is user-editable: a non-string key or URL would make the
+    // `.trim()` calls in the settings row and on the request path throw, where
+    // the old truthiness checks tolerated them. Fall back to the defaults for
+    // anything that is not a string, then reject the invalid dropdown values.
+    const api = normalizeApiSettings(this.settings);
+    this.settings.apiKey = api.apiKey;
+    this.settings.apiUrl = api.apiUrl;
+
+    // A value the API does not accept would leave the dropdown with nothing
+    // selected and the request silently footerless. Fall back to the defaults
+    // instead.
     if (!isPageNumberFormat(this.settings.pageNumbers)) {
       this.settings.pageNumbers = DEFAULT_SETTINGS.pageNumbers;
     }
@@ -645,49 +652,16 @@ class MakesPdfSettingTab extends PluginSettingTab {
   }
 
   /**
-   * The API key row: the field, plus a warning under it when the stored key
-   * does not look like one of the hosted service's keys. A warning only — the
-   * key is saved and sent as typed either way (the request trims it) — so it
-   * cannot use the declarative `validate` hook, which rejects the value it
-   * complains about. Built here rather than in a `control` definition so the
-   * 1.13+ declarative tab and the pre-1.13 display() fallback draw the exact
-   * same row and the warning follows each keystroke without a re-render.
+   * The API key row, drawn by the obsidian-free `drawApiKeySetting` so both
+   * renderers share one tested implementation. The returned refresh is kept
+   * for the API URL control: an override turns the warning off.
    */
   private addApiKeySetting(setting: Setting): void {
-    setting
-      .setName("API key")
-      .setDesc(API_KEY_DESC)
-      .setClass("makespdf-api-key-setting");
-
-    // Appended to the row rather than the description element: the warning has
-    // to sit outside whatever the declarative renderer does with name/desc.
-    const warningEl = setting.settingEl.createDiv({
-      cls: "makespdf-api-key-warning",
-      attr: { role: "status" },
-    });
-
-    const refreshWarning = () => {
-      const warning = apiKeyFormatWarning({
-        apiKey: this.plugin.settings.apiKey,
-        apiUrl: this.plugin.settings.apiUrl,
-      });
-      warningEl.setText(warning ?? "");
-      warningEl.toggle(warning !== undefined);
-    };
-    this.updateApiKeyWarning = refreshWarning;
-
-    setting.addText((text) =>
-      text
-        .setPlaceholder("Paste your API key")
-        .setValue(this.plugin.settings.apiKey)
-        .onChange(async (value) => {
-          this.plugin.settings.apiKey = value;
-          refreshWarning();
-          await this.plugin.saveSettings();
-        }),
+    this.updateApiKeyWarning = drawApiKeySetting(
+      setting,
+      this.plugin.settings,
+      () => this.plugin.saveSettings(),
     );
-
-    refreshWarning();
   }
 
   /**

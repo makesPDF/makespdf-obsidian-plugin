@@ -20,16 +20,23 @@ export const API_KEY_SHAPE = /^mpdf_[A-Za-z0-9]{32}$/;
 export const API_KEY_FORMAT_WARNING =
   "This doesn't look like a makesPDF API key. Keys start with mpdf_.";
 
-/** Surrounding whitespace is never part of a key: trim before checking or sending. */
-export function normalizeApiKey(apiKey: string): string {
-  return apiKey.trim();
+/**
+ * Surrounding whitespace is never part of a key: trim before checking or
+ * sending. A non-string (a hand-edited `data.json`) is no key at all, which
+ * keeps every caller's `.trim()` from throwing on it.
+ */
+export function normalizeApiKey(apiKey: unknown): string {
+  return typeof apiKey === "string" ? apiKey.trim() : "";
 }
 
 /**
  * True when the API URL setting does not override the hosted service: empty
  * (the default) or the hosted URL itself, with or without a trailing slash.
+ * A non-string is no usable override, so it counts as the default too,
+ * matching `normalizeApiSettings`' fallback for a hand-edited `data.json`.
  */
-export function isDefaultApiUrl(apiUrl: string): boolean {
+export function isDefaultApiUrl(apiUrl: unknown): boolean {
+  if (typeof apiUrl !== "string") return true;
   const trimmed = apiUrl.trim().replace(/\/+$/, "");
   return trimmed === "" || trimmed.toLowerCase() === DEFAULT_API_URL;
 }
@@ -38,6 +45,22 @@ export function isDefaultApiUrl(apiUrl: string): boolean {
 export interface ApiKeySettings {
   apiKey: string;
   apiUrl: string;
+}
+
+/**
+ * The stored API settings with every non-string replaced by its default.
+ * `data.json` is user-editable, and the old truthiness checks tolerated a
+ * `null` key or URL; the string operations the request and the settings row
+ * perform do not. `loadSettings` runs this before anything reads them.
+ */
+export function normalizeApiSettings(stored: {
+  apiKey: unknown;
+  apiUrl: unknown;
+}): ApiKeySettings {
+  return {
+    apiKey: typeof stored.apiKey === "string" ? stored.apiKey : "",
+    apiUrl: typeof stored.apiUrl === "string" ? stored.apiUrl : DEFAULT_API_URL,
+  };
 }
 
 /**
