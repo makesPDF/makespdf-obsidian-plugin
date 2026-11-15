@@ -21,6 +21,8 @@ import {
 } from "obsidian";
 
 import { buildCanvasExport } from "./canvas";
+import { DEFAULT_API_URL, normalizeApiKey, normalizeApiSettings } from "./api-key";
+import { API_KEY_DESC, drawApiKeySetting } from "./api-key-setting";
 import {
   buildProblemContext,
   sendFeedback,
@@ -70,7 +72,7 @@ interface MakesPdfSettings {
 }
 
 const DEFAULT_SETTINGS: MakesPdfSettings = {
-  apiUrl: "https://makespdf.com",
+  apiUrl: DEFAULT_API_URL,
   apiKey: "",
   pageSize: "A4",
   fontFamily: "Inter",
@@ -83,8 +85,6 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
 };
 
 /** Setting copy and options, shared by both settings renderers below. */
-const API_KEY_DESC =
-  "Optional. Without a key, exports use the free anonymous path (rate-limited, up to 20 pages per render). Add a key from your makespdf.com account for higher limits and larger documents.";
 const API_URL_DESC = "Override for self-hosted or development use.";
 const FONT_SIZE_DESC = "Font size in points (6 to 24)";
 const PAGE_NUMBERS_DESC =
@@ -172,9 +172,17 @@ export default class MakesPdfPlugin extends Plugin {
     const stored = (await this.loadData()) as Partial<MakesPdfSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
 
-    // `data.json` is user-editable, and a value the API does not accept would
-    // leave the dropdown with nothing selected and the request silently
-    // footerless. Fall back to the defaults instead.
+    // `data.json` is user-editable: a non-string key or URL would make the
+    // `.trim()` calls in the settings row and on the request path throw, where
+    // the old truthiness checks tolerated them. Fall back to the defaults for
+    // anything that is not a string, then reject the invalid dropdown values.
+    const api = normalizeApiSettings(this.settings);
+    this.settings.apiKey = api.apiKey;
+    this.settings.apiUrl = api.apiUrl;
+
+    // A value the API does not accept would leave the dropdown with nothing
+    // selected and the request silently footerless. Fall back to the defaults
+    // instead.
     if (!isPageNumberFormat(this.settings.pageNumbers)) {
       this.settings.pageNumbers = DEFAULT_SETTINGS.pageNumbers;
     }
@@ -442,7 +450,8 @@ export default class MakesPdfPlugin extends Plugin {
         const failure = describeRenderFailure({
           status: response.status,
           bodyText: new TextDecoder().decode(response.arrayBuffer),
-          hasApiKey: Boolean(this.settings.apiKey),
+          // A whitespace-only key is no key: it is not sent either.
+          hasApiKey: Boolean(normalizeApiKey(this.settings.apiKey)),
         });
         facts.errorCode = failure.errorCode;
         this.showExportError(
@@ -630,9 +639,29 @@ class FeedbackModal extends Modal {
 class MakesPdfSettingTab extends PluginSettingTab {
   plugin: MakesPdfPlugin;
 
+  /**
+   * Re-evaluates the API key format warning. The API URL field decides whether
+   * the warning applies at all, so it has to trigger the same refresh the key
+   * field does; `addApiKeySetting` installs this so both renderers share it.
+   */
+  private updateApiKeyWarning: () => void = () => {};
+
   constructor(app: App, plugin: MakesPdfPlugin) {
     super(app, plugin);
     this.plugin = plugin;
+  }
+
+  /**
+   * The API key row, drawn by the obsidian-free `drawApiKeySetting` so both
+   * renderers share one tested implementation. The returned refresh is kept
+   * for the API URL control: an override turns the warning off.
+   */
+  private addApiKeySetting(setting: Setting): void {
+    this.updateApiKeyWarning = drawApiKeySetting(
+      setting,
+      this.plugin.settings,
+      () => this.plugin.saveSettings(),
+    );
   }
 
   /**
@@ -648,12 +677,10 @@ class MakesPdfSettingTab extends PluginSettingTab {
         name: "API key",
         desc: API_KEY_DESC,
         aliases: ["token", "authorization", "bearer"],
-        control: {
-          type: "text",
-          key: "apiKey",
-          placeholder: "Paste your API key",
-          defaultValue: DEFAULT_SETTINGS.apiKey,
-        },
+        // `render`, not `control`: the framework's `validate` hook rejects the
+        // value it returns a message for, and a key that looks wrong must
+        // still be saved and sent. See addApiKeySetting().
+        render: (setting) => this.addApiKeySetting(setting),
       },
       {
         name: "API URL",
@@ -763,7 +790,9 @@ class MakesPdfSettingTab extends PluginSettingTab {
    * Persist a control's value through the plugin's own settings object, then
    * re-evaluate the declarative predicates: the page-number position control
    * is disabled while the format is Off, and `disabled` is only evaluated on
-   * render, so a format change has to refresh the DOM state.
+   * render, so a format change has to refresh the DOM state. The API URL
+   * decides whether the key's format warning applies, so it refreshes that
+   * too.
    *
    * Both APIs are 1.13.0+, and this method only exists for the declarative
    * renderer that version adds; older versions use display().
@@ -772,6 +801,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
     if (requireApiVersion("1.13.0")) {
       await super.setControlValue(key, value);
       if (key === "pageNumbers") this.refreshDomState();
+      if (key === "apiUrl") this.updateApiKeyWarning();
     }
   }
 
@@ -780,28 +810,18 @@ class MakesPdfSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName("API key")
-      .setDesc(API_KEY_DESC)
-      .addText((text) =>
-        text
-          .setPlaceholder("Paste your API key")
-          .setValue(this.plugin.settings.apiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.apiKey = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+    this.addApiKeySetting(new Setting(containerEl));
 
     new Setting(containerEl)
       .setName("API URL")
       .setDesc(API_URL_DESC)
       .addText((text) =>
         text
-          .setPlaceholder("https://makespdf.com")
+          .setPlaceholder(DEFAULT_API_URL)
           .setValue(this.plugin.settings.apiUrl)
           .onChange(async (value) => {
             this.plugin.settings.apiUrl = value || DEFAULT_SETTINGS.apiUrl;
+            this.updateApiKeyWarning();
             await this.plugin.saveSettings();
           }),
       );

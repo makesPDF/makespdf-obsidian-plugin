@@ -94,6 +94,13 @@ describe("buildFeedbackRequest", () => {
     const authed = buildFeedbackRequest({ ...ARGS, apiKey: "key_123" });
     expect(authed.headers.Authorization).toBe("Bearer key_123");
   });
+
+  it("sends the trimmed key, and no Authorization for a whitespace-only one", () => {
+    expect(buildFeedbackRequest({ ...ARGS, apiKey: "  key_123 \n" }).headers.Authorization).toBe(
+      "Bearer key_123",
+    );
+    expect(buildFeedbackRequest({ ...ARGS, apiKey: "   " }).headers.Authorization).toBeUndefined();
+  });
 });
 
 describe("validateFeedbackMessage", () => {
@@ -137,5 +144,22 @@ describe("sendFeedback", () => {
       status: "failed",
       error: "Unauthorized (HTTP 401)",
     });
+  });
+
+  it("treats a whitespace-only key as no key: no header and no retry", async () => {
+    // The trim in the retry decision is what this pins: without it a padded
+    // empty key would look configured and trigger a pointless second call.
+    const seen: FeedbackRequest[] = [];
+    const transport = (request: FeedbackRequest) => {
+      seen.push(request);
+      return Promise.resolve({ status: 401, text: '{"error":"Unauthorized"}' });
+    };
+
+    expect(await sendFeedback({ ...ARGS, apiKey: "   " }, transport)).toEqual({
+      status: "failed",
+      error: "Unauthorized (HTTP 401)",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].headers.Authorization).toBeUndefined();
   });
 });

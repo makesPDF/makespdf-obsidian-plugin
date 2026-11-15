@@ -9,6 +9,8 @@
  * header rules are unit-testable.
  */
 
+import { normalizeApiKey } from "./api-key";
+
 /** This plugin's client kind on the wire: one plain word, no suffix. */
 export const CLIENT_KIND = "obsidian";
 
@@ -17,7 +19,12 @@ export function clientHeaderValue(version: string): string {
   return `${CLIENT_KIND}/${version}`;
 }
 
-/** Headers for the POST /api/v1/md render request. */
+/**
+ * Headers for the POST /api/v1/md render request. A pasted key often carries
+ * whitespace, which is never part of it, so the header is built from the
+ * trimmed value; a whitespace-only key is no key at all and leaves the request
+ * anonymous rather than sending a `Bearer ` that can only 401.
+ */
 export function buildRenderHeaders(args: {
   version: string;
   apiKey: string;
@@ -26,6 +33,7 @@ export function buildRenderHeaders(args: {
     "Content-Type": "application/json",
     "X-MakesPDF-Client": clientHeaderValue(args.version),
   };
-  if (args.apiKey) headers.Authorization = `Bearer ${args.apiKey}`;
+  const apiKey = normalizeApiKey(args.apiKey);
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   return headers;
 }

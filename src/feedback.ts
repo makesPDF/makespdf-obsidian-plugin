@@ -10,6 +10,7 @@
  */
 
 import { clientHeaderValue } from "./client";
+import { normalizeApiKey } from "./api-key";
 
 export type FeedbackKind = "problem" | "idea" | "praise";
 
@@ -114,7 +115,10 @@ export function buildFeedbackRequest(args: FeedbackRequestArgs): FeedbackRequest
     "X-MakesPDF-Client": clientHeaderValue(args.version),
   };
   // An empty `Bearer ` is a failed auth attempt (401), not an anonymous request.
-  if (args.apiKey) headers.Authorization = `Bearer ${args.apiKey}`;
+  // Trimmed first: whitespace from a paste is never part of a key, and a
+  // whitespace-only key is no key.
+  const apiKey = normalizeApiKey(args.apiKey);
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
   const body: { kind: FeedbackKind; message: string; context?: FeedbackContext } = {
     kind: args.kind,
@@ -159,7 +163,7 @@ export async function sendFeedback(
   let response: FeedbackResponse;
   try {
     response = await transport(buildFeedbackRequest(args));
-    if (response.status === 401 && args.apiKey) {
+    if (response.status === 401 && normalizeApiKey(args.apiKey)) {
       response = await transport(buildFeedbackRequest({ ...args, apiKey: "" }));
     }
   } catch (error) {
