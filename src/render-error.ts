@@ -37,7 +37,10 @@ export const API_KEY_HINT = "Add an API key in the MakesPDF settings for higher 
 export const INVALID_API_KEY_TEXT = "Invalid API key";
 
 export interface RenderFailure {
-  /** Notice text: the server's `message`, else `error`, else `HTTP <status>`, plus the hint when due. */
+  /**
+   * Notice text: the server's `message`, else `error`, else `HTTP <status>`,
+   * plus the hint when due; a rejected key is named as such instead.
+   */
   message: string;
   /** The code-shaped `error` value for the feedback context; never a sentence. */
   errorCode?: string;
@@ -118,7 +121,7 @@ function failureText(status: number, body: RenderErrorBody): string {
  * `invalid-api-key` code, or any 401 on a request that carried a key, is shown
  * as "Invalid API key" with the settings link, whatever wording the body has.
  * A 401 with no key configured is not the key's fault and keeps the generic
- * text (a keyless request should not be able to earn one anyway).
+ * text (the server only answers `invalid-api-key` with a rejected bearer).
  *
  * The API-key hint is offered whenever the user's anonymous request could be
  * fixed by a key: the page cap (a 400) and the rate-limit / size limits
