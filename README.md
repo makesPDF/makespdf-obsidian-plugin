@@ -63,7 +63,9 @@ export.
 Adding an API key from a [makespdf.com](https://makespdf.com?ref=obsidian)
 account raises those limits and removes the page cap. Exports made with a key
 draw on that account's render credits (1 credit per 10 pages), less any free
-page allowance currently in effect.
+page allowance currently in effect. A makesPDF API key (and a device-flow
+token) is `mpdf_` followed by 32 letters or digits; the plugin warns in the
+settings when a key does not look like that but still saves and sends it.
 
 ## Usage
 

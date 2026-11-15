@@ -21,6 +21,7 @@ import {
 } from "obsidian";
 
 import { buildCanvasExport } from "./canvas";
+import { DEFAULT_API_URL, apiKeyFormatWarning, normalizeApiKey } from "./api-key";
 import {
   buildProblemContext,
   sendFeedback,
@@ -70,7 +71,7 @@ interface MakesPdfSettings {
 }
 
 const DEFAULT_SETTINGS: MakesPdfSettings = {
-  apiUrl: "https://makespdf.com",
+  apiUrl: DEFAULT_API_URL,
   apiKey: "",
   pageSize: "A4",
   fontFamily: "Inter",
@@ -442,7 +443,8 @@ export default class MakesPdfPlugin extends Plugin {
         const failure = describeRenderFailure({
           status: response.status,
           bodyText: new TextDecoder().decode(response.arrayBuffer),
-          hasApiKey: Boolean(this.settings.apiKey),
+          // A whitespace-only key is no key: it is not sent either.
+          hasApiKey: Boolean(normalizeApiKey(this.settings.apiKey)),
         });
         facts.errorCode = failure.errorCode;
         this.showExportError(
@@ -630,9 +632,62 @@ class FeedbackModal extends Modal {
 class MakesPdfSettingTab extends PluginSettingTab {
   plugin: MakesPdfPlugin;
 
+  /**
+   * Re-evaluates the API key format warning. The API URL field decides whether
+   * the warning applies at all, so it has to trigger the same refresh the key
+   * field does; `addApiKeySetting` installs this so both renderers share it.
+   */
+  private updateApiKeyWarning: () => void = () => {};
+
   constructor(app: App, plugin: MakesPdfPlugin) {
     super(app, plugin);
     this.plugin = plugin;
+  }
+
+  /**
+   * The API key row: the field, plus a warning under it when the stored key
+   * does not look like one of the hosted service's keys. A warning only — the
+   * key is saved and sent as typed either way (the request trims it) — so it
+   * cannot use the declarative `validate` hook, which rejects the value it
+   * complains about. Built here rather than in a `control` definition so the
+   * 1.13+ declarative tab and the pre-1.13 display() fallback draw the exact
+   * same row and the warning follows each keystroke without a re-render.
+   */
+  private addApiKeySetting(setting: Setting): void {
+    setting
+      .setName("API key")
+      .setDesc(API_KEY_DESC)
+      .setClass("makespdf-api-key-setting");
+
+    // Appended to the row rather than the description element: the warning has
+    // to sit outside whatever the declarative renderer does with name/desc.
+    const warningEl = setting.settingEl.createDiv({
+      cls: "makespdf-api-key-warning",
+      attr: { role: "status" },
+    });
+
+    const refreshWarning = () => {
+      const warning = apiKeyFormatWarning({
+        apiKey: this.plugin.settings.apiKey,
+        apiUrl: this.plugin.settings.apiUrl,
+      });
+      warningEl.setText(warning ?? "");
+      warningEl.toggle(warning !== undefined);
+    };
+    this.updateApiKeyWarning = refreshWarning;
+
+    setting.addText((text) =>
+      text
+        .setPlaceholder("Paste your API key")
+        .setValue(this.plugin.settings.apiKey)
+        .onChange(async (value) => {
+          this.plugin.settings.apiKey = value;
+          refreshWarning();
+          await this.plugin.saveSettings();
+        }),
+    );
+
+    refreshWarning();
   }
 
   /**
@@ -648,12 +703,10 @@ class MakesPdfSettingTab extends PluginSettingTab {
         name: "API key",
         desc: API_KEY_DESC,
         aliases: ["token", "authorization", "bearer"],
-        control: {
-          type: "text",
-          key: "apiKey",
-          placeholder: "Paste your API key",
-          defaultValue: DEFAULT_SETTINGS.apiKey,
-        },
+        // `render`, not `control`: the framework's `validate` hook rejects the
+        // value it returns a message for, and a key that looks wrong must
+        // still be saved and sent. See addApiKeySetting().
+        render: (setting) => this.addApiKeySetting(setting),
       },
       {
         name: "API URL",
@@ -763,7 +816,9 @@ class MakesPdfSettingTab extends PluginSettingTab {
    * Persist a control's value through the plugin's own settings object, then
    * re-evaluate the declarative predicates: the page-number position control
    * is disabled while the format is Off, and `disabled` is only evaluated on
-   * render, so a format change has to refresh the DOM state.
+   * render, so a format change has to refresh the DOM state. The API URL
+   * decides whether the key's format warning applies, so it refreshes that
+   * too.
    *
    * Both APIs are 1.13.0+, and this method only exists for the declarative
    * renderer that version adds; older versions use display().
@@ -772,6 +827,7 @@ class MakesPdfSettingTab extends PluginSettingTab {
     if (requireApiVersion("1.13.0")) {
       await super.setControlValue(key, value);
       if (key === "pageNumbers") this.refreshDomState();
+      if (key === "apiUrl") this.updateApiKeyWarning();
     }
   }
 
@@ -780,28 +836,18 @@ class MakesPdfSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName("API key")
-      .setDesc(API_KEY_DESC)
-      .addText((text) =>
-        text
-          .setPlaceholder("Paste your API key")
-          .setValue(this.plugin.settings.apiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.apiKey = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+    this.addApiKeySetting(new Setting(containerEl));
 
     new Setting(containerEl)
       .setName("API URL")
       .setDesc(API_URL_DESC)
       .addText((text) =>
         text
-          .setPlaceholder("https://makespdf.com")
+          .setPlaceholder(DEFAULT_API_URL)
           .setValue(this.plugin.settings.apiUrl)
           .onChange(async (value) => {
             this.plugin.settings.apiUrl = value || DEFAULT_SETTINGS.apiUrl;
+            this.updateApiKeyWarning();
             await this.plugin.saveSettings();
           }),
       );
