@@ -24,4 +24,14 @@ describe("buildRenderHeaders", () => {
     expect(authed["X-MakesPDF-Client"]).toBe("obsidian/1.1.0");
     expect(authed.Authorization).toBe("Bearer key_123");
   });
+
+  it("sends the trimmed key: a paste's whitespace is not part of it", () => {
+    const headers = buildRenderHeaders({ version: "1.1.0", apiKey: "  key_123\n" });
+    expect(headers.Authorization).toBe("Bearer key_123");
+  });
+
+  it("treats a whitespace-only key as no key, never as a bare Bearer", () => {
+    const headers = buildRenderHeaders({ version: "1.1.0", apiKey: "   " });
+    expect(headers.Authorization).toBeUndefined();
+  });
 });

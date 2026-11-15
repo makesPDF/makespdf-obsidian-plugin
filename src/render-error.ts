@@ -28,6 +28,14 @@ export interface RenderErrorBody {
 /** Shown for anonymous failures the API key removes. Same wording on every path. */
 export const API_KEY_HINT = "Add an API key in the MakesPDF settings for higher limits.";
 
+/**
+ * Shown when the render is rejected as unauthenticated (a 401). The server
+ * answers a bad bearer with `invalid-api-key` (MAK-322); the plugin says the
+ * same thing in one fixed sentence, so a server-side rewording cannot change
+ * what the user reads, and offers the settings link that fixes it.
+ */
+export const INVALID_API_KEY_TEXT = "Invalid API key";
+
 export interface RenderFailure {
   /** Notice text: the server's `message`, else `error`, else `HTTP <status>`, plus the hint when due. */
   message: string;
@@ -106,6 +114,12 @@ function failureText(status: number, body: RenderErrorBody): string {
  * bare code because it is the server explaining itself; the code remains the
  * fallback and, when code-shaped, the only part the feedback payload receives.
  *
+ * A 401 is the key being wrong rather than the request: the server's own
+ * `invalid-api-key` code, or any 401 on a request that carried a key, is shown
+ * as "Invalid API key" with the settings link, whatever wording the body has.
+ * A 401 with no key configured is not the key's fault and keeps the generic
+ * text (a keyless request should not be able to earn one anyway).
+ *
  * The API-key hint is offered whenever the user's anonymous request could be
  * fixed by a key: the page cap (a 400) and the rate-limit / size limits
  * (429 / 413). The settings link rides with the hint, so every notice that
@@ -119,6 +133,14 @@ export function describeRenderFailure(args: {
   const body = parseRenderErrorBody(args.bodyText);
   const errorCode = asErrorCode(body.error);
   const pageCapExceeded = errorCode === "page-cap-exceeded";
+
+  if (args.status === 401 && (args.hasApiKey || errorCode === "invalid-api-key")) {
+    return {
+      message: INVALID_API_KEY_TEXT,
+      errorCode,
+      offerSettingsLink: true,
+    };
+  }
 
   const text = failureText(args.status, body);
   const hintApplies =

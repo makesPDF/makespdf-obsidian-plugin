@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { API_KEY_HINT, describeRenderFailure, parseRenderErrorBody } from "./render-error";
+import { API_KEY_HINT, INVALID_API_KEY_TEXT, describeRenderFailure, parseRenderErrorBody } from "./render-error";
 
 // The exact body `buildAnonPageCapBody` returns (MAK-119).
 const PAGE_CAP_MESSAGE =
@@ -157,5 +157,74 @@ describe("describeRenderFailure", () => {
 
     expect(failure.message).toBe("Rendering failed. Try again.");
     expect(failure.errorCode).toBe("internal-error");
+  });
+});
+
+// The server answers a rejected bearer with 401 and code `invalid-api-key`
+// (MAK-322); the plugin names that as the key rather than echoing the body.
+describe("describeRenderFailure on a 401", () => {
+  it("names an invalid key from the server's code, with the settings link", () => {
+    const failure = describeRenderFailure({
+      status: 401,
+      bodyText: '{"error":"invalid-api-key","message":"Invalid API key"}',
+      hasApiKey: true,
+    });
+
+    expect(failure).toEqual({
+      message: INVALID_API_KEY_TEXT,
+      errorCode: "invalid-api-key",
+      offerSettingsLink: true,
+    });
+  });
+
+  it("names an invalid key for any 401 on a request that carried one", () => {
+    for (const bodyText of ['{"error":"unauthorized"}', "<html>Bad gateway</html>", ""]) {
+      const failure = describeRenderFailure({ status: 401, bodyText, hasApiKey: true });
+      expect(failure.message).toBe(INVALID_API_KEY_TEXT);
+      expect(failure.offerSettingsLink).toBe(true);
+    }
+  });
+
+  it("does not substitute the server's own wording for the key's", () => {
+    const failure = describeRenderFailure({
+      status: 401,
+      bodyText: '{"error":"unauthorized","message":"Payment required"}',
+      hasApiKey: true,
+    });
+
+    expect(failure.message).toBe(INVALID_API_KEY_TEXT);
+    expect(failure.message).not.toContain("Payment required");
+    // The sentence is the notice's whole text: no hint, no "..".
+    expect(failure.message).not.toContain(API_KEY_HINT);
+  });
+
+  it("keeps today's text for a keyless 401", () => {
+    const failure = describeRenderFailure({
+      status: 401,
+      bodyText: '{"error":"unauthorized"}',
+      hasApiKey: false,
+    });
+
+    expect(failure).toEqual({
+      message: "unauthorized",
+      errorCode: "unauthorized",
+      offerSettingsLink: false,
+    });
+    expect(
+      describeRenderFailure({ status: 401, bodyText: "<html>", hasApiKey: false }).message,
+    ).toBe("HTTP 401");
+  });
+
+  it("still names the key when the body carries its code but no request did", () => {
+    // Defensive: the code is the server saying the key is wrong, so the
+    // settings link is the fix even if the plugin thinks no key is set.
+    const failure = describeRenderFailure({
+      status: 401,
+      bodyText: '{"error":"invalid-api-key"}',
+      hasApiKey: false,
+    });
+
+    expect(failure.message).toBe(INVALID_API_KEY_TEXT);
+    expect(failure.offerSettingsLink).toBe(true);
   });
 });

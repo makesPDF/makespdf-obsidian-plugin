@@ -94,6 +94,13 @@ describe("buildFeedbackRequest", () => {
     const authed = buildFeedbackRequest({ ...ARGS, apiKey: "key_123" });
     expect(authed.headers.Authorization).toBe("Bearer key_123");
   });
+
+  it("sends the trimmed key, and no Authorization for a whitespace-only one", () => {
+    expect(buildFeedbackRequest({ ...ARGS, apiKey: "  key_123 \n" }).headers.Authorization).toBe(
+      "Bearer key_123",
+    );
+    expect(buildFeedbackRequest({ ...ARGS, apiKey: "   " }).headers.Authorization).toBeUndefined();
+  });
 });
 
 describe("validateFeedbackMessage", () => {
