@@ -83,6 +83,13 @@ vault API, so they cannot be written outside the vault: a path like
 `~/Downloads` is not expanded and is rejected rather than creating a folder
 named `~` in your vault.
 
+### Missing characters
+
+If a character in the note or canvas has no font coverage, the PDF is still
+saved. The character is drawn blank and the save notice says so, with a link to
+the [font docs](https://makespdf.com/docs/fonts) for the server the export used.
+An export with no such warning shows only the usual **PDF saved** notice.
+
 ### What gets converted
 
 Obsidian-specific syntax is translated to GitHub Flavored Markdown before

@@ -32,6 +32,11 @@ import {
   type FeedbackKind,
 } from "./feedback";
 import { buildRenderHeaders } from "./client";
+import {
+  drawSavedNotice,
+  savedPdfNotice,
+  type SavedPdfNotice,
+} from "./layout-warnings";
 import { describeRenderFailure } from "./render-error";
 import { openPluginSettingsTab, type SettingsModalApp } from "./plugin-settings";
 import { inlineVaultImages } from "./images";
@@ -503,7 +508,14 @@ export default class MakesPdfPlugin extends Plugin {
         .join(", ");
 
       notice.hide();
-      new Notice(`PDF saved: ${pdfName}${stats ? ` (${stats})` : ""}`);
+      this.showSavedNotice(
+        savedPdfNotice({
+          headers: response.headers,
+          pdfName,
+          stats,
+          apiUrl: this.settings.apiUrl,
+        }),
+      );
     } catch (err) {
       notice.hide();
       const message = err instanceof Error ? err.message : String(err);
@@ -521,6 +533,27 @@ export default class MakesPdfPlugin extends Plugin {
         this.showExportError(`PDF export failed: ${message}`, facts);
       }
     }
+  }
+
+  /**
+   * The save confirmation. A response whose `X-Layout-Warnings` names
+   * `glyph-missing` adds the warning and a link to the font docs; the PDF was
+   * written before this runs, so the warning never turns the save into a
+   * failure. The link opens in the browser, and the notice stays long enough
+   * to reach it; a click anywhere else dismisses it.
+   *
+   * Only the obsidian wiring lives here: `drawSavedNotice` owns the notice's
+   * content and is obsidian-free, so its rendering is unit-tested.
+   */
+  private showSavedNotice(saved: SavedPdfNotice) {
+    drawSavedNotice(saved, {
+      createFragment: (build) => createFragment((frag) => build(frag)),
+      notify: (content, timeoutMs) =>
+        new Notice(content as string | DocumentFragment, timeoutMs),
+      openUrl: (url) => {
+        window.open(url, "_blank");
+      },
+    });
   }
 }
 
