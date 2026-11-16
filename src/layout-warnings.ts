@@ -15,7 +15,7 @@
 import { DEFAULT_API_URL } from "./api-key";
 
 /** The response header, matched case-insensitively. */
-export const LAYOUT_WARNINGS_HEADER = "x-layout-warnings";
+const LAYOUT_WARNINGS_HEADER = "x-layout-warnings";
 
 /** A character no font covered: drawn blank, named by the warning. */
 export const GLYPH_MISSING_CODE = "glyph-missing";
@@ -75,15 +75,26 @@ export function hasGlyphMissing(
   return layoutWarningCodes(headers).includes(GLYPH_MISSING_CODE);
 }
 
-/** What `renderPdf` shows once the PDF is written, and whether it adds the docs link. */
-export interface SavedPdfNotice {
-  /** True when the response named `glyph-missing`. */
-  glyphMissing: boolean;
-  /** The save confirmation, plus the glyph warning when there was one. */
-  message: string;
-  /** The font docs page; present only when `glyphMissing`, so the usual notice is unchanged. */
-  docsUrl?: string;
-}
+/**
+ * What `renderPdf` shows once the PDF is written. A discriminated union so the
+ * two fields cannot disagree: `docsUrl` exists exactly when the response named
+ * `glyph-missing`.
+ */
+export type SavedPdfNotice =
+  | {
+      /** The response named no warning this notice acts on. */
+      glyphMissing: false;
+      /** The save confirmation, exactly as the plugin has always shown it. */
+      message: string;
+    }
+  | {
+      /** The response named `glyph-missing`: some character was drawn blank. */
+      glyphMissing: true;
+      /** The save confirmation, plus the warning. */
+      message: string;
+      /** The font docs page on the server the export was sent to. */
+      docsUrl: string;
+    };
 
 /**
  * Plan the notice shown after a successful save. The misses are additive: the
@@ -105,4 +116,78 @@ export function savedPdfNotice(args: {
     message: `${message} ${GLYPH_MISSING_TEXT}`,
     docsUrl: fontDocsUrl(args.apiUrl),
   };
+}
+
+/** A click event as the docs anchor uses it; the DOM's `MouseEvent` satisfies it. */
+export interface NoticeClickEvent {
+  preventDefault(): void;
+}
+
+/** The docs anchor the notice draws; the real anchor element satisfies it. */
+export interface NoticeLink {
+  addEventListener(
+    type: "click",
+    listener: (event: NoticeClickEvent) => void,
+  ): void;
+}
+
+/** The fragment the notice's text is built into; `createFragment` supplies it. */
+export interface NoticeFragment {
+  appendText(text: string): void;
+  createEl(
+    tag: "a",
+    options: { text: string; href: string; attr?: Record<string, string> },
+  ): NoticeLink;
+}
+
+/** An open notice, so the docs link can dismiss it before opening the browser. */
+export interface NoticeHandle {
+  hide(): void;
+}
+
+/**
+ * The obsidian surface the notice needs: `main.ts` wires it to `createFragment`,
+ * `Notice` and `window.open`, and the tests drive a fake, so the notice's actual
+ * rendering is pinned without the real DOM.
+ */
+export interface SavedNoticeHost {
+  createFragment(build: (fragment: NoticeFragment) => void): unknown;
+  notify(content: unknown, timeoutMs?: number): NoticeHandle;
+  openUrl(url: string): void;
+}
+
+/** How long the warning stays up: long enough to reach the docs link. */
+export const GLYPH_MISSING_NOTICE_MS = 15_000;
+
+/**
+ * Draw the save notice through `host`. A response without `glyph-missing` gets
+ * the plain "PDF saved" line every export has always shown. With it, the same
+ * line gains the warning and a docs link: the anchor carries the real
+ * destination, so hover, middle-click and context-menu open go to the docs, and
+ * a left click also dismisses the notice and opens the browser.
+ */
+export function drawSavedNotice(
+  saved: SavedPdfNotice,
+  host: SavedNoticeHost,
+): void {
+  if (!saved.glyphMissing) {
+    host.notify(saved.message);
+    return;
+  }
+
+  const fragment = host.createFragment((frag) => {
+    frag.appendText(saved.message);
+    frag.appendText(" ");
+    const link = frag.createEl("a", {
+      text: FONT_DOCS_LINK_TEXT,
+      href: saved.docsUrl,
+      attr: { target: "_blank" },
+    });
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      notice.hide();
+      host.openUrl(saved.docsUrl);
+    });
+  });
+  const notice = host.notify(fragment, GLYPH_MISSING_NOTICE_MS);
 }

@@ -33,7 +33,7 @@ import {
 } from "./feedback";
 import { buildRenderHeaders } from "./client";
 import {
-  FONT_DOCS_LINK_TEXT,
+  drawSavedNotice,
   savedPdfNotice,
   type SavedPdfNotice,
 } from "./layout-warnings";
@@ -541,25 +541,19 @@ export default class MakesPdfPlugin extends Plugin {
    * written before this runs, so the warning never turns the save into a
    * failure. The link opens in the browser, and the notice stays long enough
    * to reach it; a click anywhere else dismisses it.
+   *
+   * Only the obsidian wiring lives here: `drawSavedNotice` owns the notice's
+   * content and is obsidian-free, so its rendering is unit-tested.
    */
   private showSavedNotice(saved: SavedPdfNotice) {
-    const docsUrl = saved.docsUrl;
-    if (!docsUrl) {
-      new Notice(saved.message);
-      return;
-    }
-
-    const fragment = createFragment((frag) => {
-      frag.appendText(saved.message);
-      frag.appendText(" ");
-      const link = frag.createEl("a", { text: FONT_DOCS_LINK_TEXT, href: "#" });
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        notice.hide();
-        window.open(docsUrl, "_blank");
-      });
+    drawSavedNotice(saved, {
+      createFragment: (build) => createFragment((frag) => build(frag)),
+      notify: (content, timeoutMs) =>
+        new Notice(content as string | DocumentFragment, timeoutMs),
+      openUrl: (url) => {
+        window.open(url, "_blank");
+      },
     });
-    const notice = new Notice(fragment, 15_000);
   }
 }
 
