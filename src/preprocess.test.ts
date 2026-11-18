@@ -250,4 +250,14 @@ Some paragraph with a reference ^ref-1
       "Page\n```vtable\n{}\n```\n`#tag`",
     );
   });
+
+  it("converts the body when the front matter holds an unbalanced fence", () => {
+    const input =
+      "---\nsample: |\n  ```js\n  const a = 1;\n---\n\n# Title\n[[Page]] and #tag\n";
+
+    const output = preprocessObsidian(input);
+
+    expect(output).toContain("Page and `#tag`");
+    expect(output).toContain("```js");
+  });
 });

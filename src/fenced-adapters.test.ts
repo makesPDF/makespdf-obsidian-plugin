@@ -35,7 +35,21 @@ describe("applyFencedAdapters", () => {
     expect(out).toContain("<table>");
     expect(out).toContain('<th colspan="2" align="center">Example merged cell 1</th>');
     expect(out.startsWith("before\n<table>")).toBe(true);
-    expect(out.endsWith("</table>\nafter\n")).toBe(true);
+    expect(out.endsWith("</table>\n\nafter\n")).toBe(true);
+  });
+
+  it("separates the table from a following text line with a blank line", () => {
+    const out = applyFencedAdapters("```vtable\n" + SAMPLE + "\n```\nThanks for reading.\n", {
+      vtable: true,
+    });
+    expect(out).toContain("</table>\n\nThanks for reading.\n");
+  });
+
+  it("separates the table from a following list item with a blank line", () => {
+    const out = applyFencedAdapters("```vtable\n" + SAMPLE + "\n```\n- next item\n", {
+      vtable: true,
+    });
+    expect(out).toContain("</table>\n\n- next item\n");
   });
 
   it("leaves the block exactly as written when the adapter is off", () => {
@@ -69,7 +83,36 @@ describe("applyFencedAdapters", () => {
 
   it("adds the missing final newline at the end of a document", () => {
     const out = applyFencedAdapters("```vtable\n" + SAMPLE + "\n```", { vtable: true });
-    expect(out.endsWith("</table>\n")).toBe(true);
+    expect(out.endsWith("</table>\n\n")).toBe(true);
+  });
+
+  it("leaves the block as written when an adapter throws", () => {
+    const throwing = [
+      {
+        id: "boom",
+        fence: "boom",
+        name: "Boom",
+        description: "",
+        aliases: [],
+        toMarkdown: () => {
+          throw new RangeError("Maximum call stack size exceeded");
+        },
+      },
+    ];
+    const md = "before\n```boom\nx\n```\nafter\n";
+    expect(applyFencedAdapters(md, {}, throwing)).toBe(md);
+  });
+
+  it("does not throw on a deeply nested vtable formula", () => {
+    const source = JSON.stringify({
+      rows: [[{ t: "h" }], [{ f: "=" + "(".repeat(5_000) + "1" + ")".repeat(5_000) }]],
+    });
+    const md = "```vtable\n" + source + "\n```\n";
+
+    const out = applyFencedAdapters(md, { vtable: true });
+
+    expect(out).toContain("<table>");
+    expect(out).toContain("could not be calculated");
   });
 
   it("is a no-op only when every adapter is explicitly off", () => {

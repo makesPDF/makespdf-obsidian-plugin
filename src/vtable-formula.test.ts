@@ -112,6 +112,35 @@ describe("evaluateFormula", () => {
   it("fails a reference to a cell outside the grid", () => {
     expect(evaluateFormula("=Z99", SMALL)).toBeNull();
   });
+
+  it("fails a range larger than the table cap instead of expanding it", () => {
+    let reads = 0;
+    const read: CellReader = () => {
+      reads++;
+      return 1;
+    };
+    expect(evaluateFormula("=SUM(A1:ZZ9999)", read)).toBeNull();
+    expect(reads).toBe(0);
+
+    // A range at the cap is still evaluated.
+    expect(evaluateFormula("=COUNT(A1:E1000)", () => 1)).toBe(5_000);
+  });
+
+  it("fails a pathologically nested formula instead of overflowing the stack", () => {
+    const nested = "=" + "(".repeat(5_000) + "1" + ")".repeat(5_000);
+    expect(evaluateFormula(nested, SMALL)).toBeNull();
+
+    const signs = "=" + "-".repeat(20_000) + "1";
+    expect(evaluateFormula(signs, SMALL)).toBeNull();
+
+    // A formula nested within the limit still evaluates.
+    expect(evaluateFormula("=" + "(".repeat(20) + "1" + ")".repeat(20), SMALL)).toBe(1);
+
+    // Beyond the depth limit but under the length limit: the depth counter,
+    // not the length cap, is what rejects this one.
+    expect(evaluateFormula("=" + "(".repeat(200) + "1" + ")".repeat(200), SMALL)).toBeNull();
+    expect(evaluateFormula("=" + "-".repeat(500) + "1", SMALL)).toBeNull();
+  });
 });
 
 describe("formatFormulaValue", () => {

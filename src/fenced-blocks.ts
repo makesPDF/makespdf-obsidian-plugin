@@ -11,7 +11,16 @@
  * backticks or tildes, indented by at most three spaces; a closing fence uses
  * the same character, is at least as long, and carries nothing but whitespace;
  * an unclosed fence runs to the end of the document.
+ *
+ * A fence inside a blockquote or callout (`> ``` `) or indented four or more
+ * spaces inside a list item is out of scope: its line starts with `>` or with
+ * too much indentation, so it is not found here, which means callers neither
+ * translate it nor protect its contents. The YAML front matter is skipped:
+ * the engine strips it before rendering, and a fence in a block scalar there
+ * must not open a block over the note body.
  */
+
+import { splitFrontMatter } from "./properties";
 
 /** A fenced code block found in markdown, with offsets and its info string. */
 export interface FencedBlock {
@@ -50,7 +59,10 @@ function fenceName(rest: string): string {
  */
 export function scanFencedBlocks(markdown: string): FencedBlock[] {
   const blocks: FencedBlock[] = [];
-  let lineStart = 0;
+  // The front matter is not note body: a fence in a YAML block scalar there
+  // must not open a code block over the body (the engine strips it anyway).
+  const { exists, contentStart } = splitFrontMatter(markdown);
+  let lineStart = exists ? contentStart : 0;
 
   while (lineStart < markdown.length) {
     const newline = markdown.indexOf("\n", lineStart);

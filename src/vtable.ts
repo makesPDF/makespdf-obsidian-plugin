@@ -156,10 +156,23 @@ function formulaOf(cell: VtableCell): string | null {
   }
   const text = cellText(cell).trim();
   // Only a shape that can only be a formula: a function call, a cell
-  // reference, an arithmetic expression, or a leading operator. Prose that
-  // happens to start with "=" ("= 5 items") is text, not a formula that
-  // failed, so it must not add the "could not be calculated" note.
-  if (/^=\s*(?:[A-Za-z]+\s*\(|[A-Za-z]+\d+|\d+\s*[-+*/]|[-+(])/.test(text)) return text;
+  // reference, an arithmetic expression, or a leading operator, and the whole
+  // cell must be formula characters. Prose that happens to start with "="
+  // ("= 5 items", "=A1 is the answer") is text, not a formula that failed, so
+  // it must not add the "could not be calculated" note. A cell without a
+  // leading "=" is plain text, even when it looks like a reference ("h2").
+  if (!text.startsWith("=")) return null;
+  const body = text.slice(1).trim();
+  if (body === "" || !/^[A-Za-z0-9\s.+\-*/():,]+$/.test(body)) return null;
+  if (
+    /^[A-Za-z]+\s*\(/.test(body) ||
+    /^[A-Za-z]+\d+$/.test(body) ||
+    /^[A-Za-z]+\d+\s*[-+*/]/.test(body) ||
+    /^\d+\s*[-+*/]/.test(body) ||
+    /^[-+(]/.test(body)
+  ) {
+    return text;
+  }
   return null;
 }
 
@@ -287,13 +300,17 @@ function numberOfText(text: string): number | null {
  */
 function anchorGrid(rows: VtableCell[][]): (Point | null)[][] {
   const anchors: (Point | null)[][] = rows.map((row) => row.map(() => null));
+  // A span can be as large as 999, but only coordinates inside the grid are
+  // ever written: clamp the loops to the grid so a malformed cell cannot make
+  // the export iterate over hundreds of thousands of empty coordinates.
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
 
   for (let row = 0; row < rows.length; row++) {
     for (let column = 0; column < rows[row].length; column++) {
       const cell = rows[row][column];
       if (isPlaceholder(cell)) continue;
-      const rowSpan = spanOf(cell, "rs");
-      const columnSpan = spanOf(cell, "cs");
+      const rowSpan = Math.min(spanOf(cell, "rs"), rows.length - row);
+      const columnSpan = Math.min(spanOf(cell, "cs"), width - column);
       for (let dr = 0; dr < rowSpan; dr++) {
         for (let dc = 0; dc < columnSpan; dc++) {
           const targetRow = row + dr;
@@ -348,7 +365,12 @@ export function vtableToMarkdown(source: string): string | null {
     parts.push("");
     parts.push(`> Note: ${rendered.notes.join("; ")}.`);
   }
-  return `${parts.join("\n")}\n`;
+  // A blank line after the output terminates the HTML block for the engine's
+  // markdown parser: without it the line after the fence joins the same html
+  // token, MAK-343's parser reports trailing content and the table falls back
+  // to stacked text. It also stops the note line from absorbing a following
+  // paragraph as a lazy blockquote continuation.
+  return `${parts.join("\n")}\n\n`;
 }
 
 /** Render the rows, or null when there is nothing a reader could see. */

@@ -32,6 +32,23 @@ export type CellResult = number | null | typeof FORMULA_ERROR;
 /** A 1-based cell reference resolved to a number, null, or a failure. */
 export type CellReader = (row: number, column: number) => CellResult;
 
+/**
+ * Deepest parser nesting accepted. Each parenthesis, function call or unary
+ * sign is one level, so this is far beyond any real formula while keeping a
+ * pathological one (`((((...1...))))`) from exhausting the stack.
+ */
+const MAX_FORMULA_DEPTH = 100;
+
+/** Longest formula accepted, so tokenising a huge string stays linear-ish. */
+const MAX_FORMULA_LENGTH = 10_000;
+
+/**
+ * Most cells one range may expand to: the engine's own table cap. A range
+ * naming more is a mistake (or an attack) and fails instead of allocating a
+ * huge array.
+ */
+const MAX_RANGE_CELLS = 5_000;
+
 /** A token: a number, a cell reference, an identifier or one character. */
 type Token =
   | { kind: "number"; value: number }
@@ -119,6 +136,7 @@ type Argument =
  */
 class FormulaParser {
   private position = 0;
+  private depth = 0;
 
   constructor(
     private readonly tokens: Token[],
@@ -129,55 +147,72 @@ class FormulaParser {
     return this.position >= this.tokens.length;
   }
 
+  /** Run one nesting level of parsing, failing rather than overflowing. */
+  private nested<T>(parse: () => T | null): T | null {
+    if (this.depth >= MAX_FORMULA_DEPTH) return null;
+    this.depth++;
+    try {
+      return parse();
+    } finally {
+      this.depth--;
+    }
+  }
+
   /** `expr := term (('+'|'-') term)*` */
   expression(): number | null {
-    let left = this.term();
-    if (left === null) return null;
+    return this.nested(() => {
+      let left = this.term();
+      if (left === null) return null;
 
-    for (;;) {
-      const token = this.tokens[this.position];
-      if (!token || token.kind !== "char" || (token.value !== "+" && token.value !== "-")) {
-        return left;
+      for (;;) {
+        const token = this.tokens[this.position];
+        if (!token || token.kind !== "char" || (token.value !== "+" && token.value !== "-")) {
+          return left;
+        }
+        this.position++;
+        const right = this.term();
+        if (right === null) return null;
+        left = token.value === "+" ? left + right : left - right;
       }
-      this.position++;
-      const right = this.term();
-      if (right === null) return null;
-      left = token.value === "+" ? left + right : left - right;
-    }
+    });
   }
 
   /** `term := factor (('*'|'/') factor)*` */
   private term(): number | null {
-    let left = this.factor();
-    if (left === null) return null;
+    return this.nested(() => {
+      let left = this.factor();
+      if (left === null) return null;
 
-    for (;;) {
-      const token = this.tokens[this.position];
-      if (!token || token.kind !== "char" || (token.value !== "*" && token.value !== "/")) {
-        return left;
+      for (;;) {
+        const token = this.tokens[this.position];
+        if (!token || token.kind !== "char" || (token.value !== "*" && token.value !== "/")) {
+          return left;
+        }
+        this.position++;
+        const right = this.factor();
+        if (right === null) return null;
+        if (token.value === "/") {
+          if (right === 0) return null;
+          left /= right;
+        } else {
+          left *= right;
+        }
       }
-      this.position++;
-      const right = this.factor();
-      if (right === null) return null;
-      if (token.value === "/") {
-        if (right === 0) return null;
-        left /= right;
-      } else {
-        left *= right;
-      }
-    }
+    });
   }
 
   /** `factor := ('+'|'-')? primary` */
   private factor(): number | null {
-    const token = this.tokens[this.position];
-    if (token && token.kind === "char" && (token.value === "+" || token.value === "-")) {
-      this.position++;
-      const value = this.factor();
-      if (value === null) return null;
-      return token.value === "-" ? -value : value;
-    }
-    return this.primary();
+    return this.nested(() => {
+      const token = this.tokens[this.position];
+      if (token && token.kind === "char" && (token.value === "+" || token.value === "-")) {
+        this.position++;
+        const value = this.factor();
+        if (value === null) return null;
+        return token.value === "-" ? -value : value;
+      }
+      return this.primary();
+    });
   }
 
   /** `primary := number | ref | func '(' args ')' | '(' expr ')'` */
@@ -267,6 +302,9 @@ class FormulaParser {
       const rowTo = Math.max(start.row, after.row);
       const columnFrom = Math.min(start.column, after.column);
       const columnTo = Math.max(start.column, after.column);
+      if ((rowTo - rowFrom + 1) * (columnTo - columnFrom + 1) > MAX_RANGE_CELLS) {
+        return null;
+      }
       for (let row = rowFrom; row <= rowTo; row++) {
         for (let column = columnFrom; column <= columnTo; column++) {
           values.push(this.read(row, column));
@@ -341,6 +379,8 @@ function applyFunction(name: string, args: Argument[]): number | null {
  * cell with no number). The leading `=` is optional.
  */
 export function evaluateFormula(source: string, read: CellReader): number | null {
+  if (source.length > MAX_FORMULA_LENGTH) return null;
+
   const body = source.trim().replace(/^=/, "").trim();
   if (body === "") return null;
 

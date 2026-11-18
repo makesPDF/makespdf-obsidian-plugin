@@ -85,6 +85,20 @@ describe("scanFencedBlocks", () => {
     expect(block.info).toBe("vtable");
     expect(block.source).toBe("x\r\n");
   });
+
+  it("does not scan the YAML front matter", () => {
+    // A block scalar holding an unbalanced fence must not open a block over
+    // the note body: the engine strips the front matter before rendering.
+    const md =
+      "---\nsample: |\n  ```js\n  const a = 1;\n---\n\n# Title\n[[Page]] and #tag\n";
+    expect(scanFencedBlocks(md)).toHaveLength(0);
+
+    // A real fence after the front matter is still found, at absolute offsets.
+    const withBlock = "---\nkey: value\n---\n\n```vtable\nx\n```\n";
+    const [block] = scanFencedBlocks(withBlock);
+    expect(block.from).toBe(withBlock.indexOf("```vtable"));
+    expect(block.source).toBe("x\n");
+  });
 });
 
 describe("replaceFencedBlocks", () => {

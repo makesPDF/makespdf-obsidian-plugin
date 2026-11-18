@@ -27,6 +27,7 @@ describe("vtableToMarkdown: the user's sample", () => {
         "</tbody>",
         "</table>",
         "",
+        "",
       ].join("\n"),
     );
   });
@@ -107,6 +108,27 @@ describe("vtableToMarkdown: spans and header", () => {
     expect(html).toContain('colspan="999"');
   });
 
+  it("clamps a huge span to the grid instead of walking every coordinate", () => {
+    // 999x999 over a 2x2 grid: the loop must be bounded by the grid, and the
+    // formula on the covered coordinate must still resolve through the anchor.
+    const html = vtableToMarkdown(
+      table([
+        [{ t: "10", rs: 999, cs: 999 }, { t: "", rs: 0, cs: 0 }],
+        [{ t: "x" }, { f: "=B1" }],
+      ]),
+    );
+    expect(html).toContain('<th colspan="999" rowspan="999">10</th>');
+    expect(html).toContain("<td>10</td>");
+  });
+
+  it("ends its output with a blank line, terminating the HTML block", () => {
+    const html = vtableToMarkdown(table([[{ t: "x" }]]));
+    expect(html?.endsWith("</table>\n\n")).toBe(true);
+    expect(
+      vtableToMarkdown(table([[{ t: "$x$" }]]))?.endsWith("text.\n\n"),
+    ).toBe(true);
+  });
+
   it("returns null when the first row is all placeholders and no body is visible", () => {
     expect(vtableToMarkdown(table([[{ t: "", rs: 0, cs: 0 }]]))).toBeNull();
   });
@@ -170,7 +192,7 @@ describe("vtableToMarkdown: table style directives", () => {
       table([[{ t: "x" }]], { zebra: true, noHeaderBg: true }),
     );
     expect(html).not.toContain("<!--");
-    expect(html).toBe("<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>\n</table>\n");
+    expect(html).toBe("<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>\n</table>\n\n");
   });
 });
 
@@ -248,6 +270,29 @@ describe("vtableToMarkdown: formulas", () => {
     const digits = vtableToMarkdown(table([[{ t: "= 5 items" }]]));
     expect(digits).toContain("<th>= 5 items</th>");
     expect(digits).not.toContain("> Note:");
+
+    const reference = vtableToMarkdown(table([[{ t: "=A1 is the answer" }]]));
+    expect(reference).toContain("<th>=A1 is the answer</th>");
+    expect(reference).not.toContain("> Note:");
+  });
+
+  it("fails a pathologically nested formula instead of overflowing the stack", () => {
+    // 200 levels is under the length cap, so the depth counter rejects it.
+    const nested = "=" + "(".repeat(200) + "1" + ")".repeat(200);
+    expect(() => vtableToMarkdown(table([[{ f: nested }]]))).not.toThrow();
+
+    const signs = "=" + "-".repeat(500) + "1";
+    expect(() => vtableToMarkdown(table([[{ f: signs }]]))).not.toThrow();
+
+    // The review's exact probes: 5,000 parentheses and 20,000 signs.
+    const huge = "=" + "(".repeat(5_000) + "1" + ")".repeat(5_000);
+    expect(() => vtableToMarkdown(table([[{ f: huge }]]))).not.toThrow();
+    expect(
+      () => vtableToMarkdown(table([[{ f: "=" + "-".repeat(20_000) + "1" }]])),
+    ).not.toThrow();
+
+    const html = vtableToMarkdown(table([[{ f: nested }]]));
+    expect(html).toContain("could not be calculated");
   });
 
   it("fails an aggregate over a range that contains a failed formula", () => {
@@ -373,14 +418,14 @@ describe("vtableToMarkdown: cell text", () => {
 
   it("ignores unknown cell keys", () => {
     const html = vtableToMarkdown(table([[{ t: "x", unknown: { deep: true } }]]));
-    expect(html).toBe("<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>\n</table>\n");
+    expect(html).toBe("<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>\n</table>\n\n");
   });
 });
 
 describe("vtableToMarkdown: header-only and formatted source", () => {
   it("renders a table with only a header row", () => {
     expect(vtableToMarkdown(table([[{ t: "h1" }, { t: "h2" }]]))).toBe(
-      "<table>\n<thead>\n<tr><th>h1</th><th>h2</th></tr>\n</thead>\n</table>\n",
+      "<table>\n<thead>\n<tr><th>h1</th><th>h2</th></tr>\n</thead>\n</table>\n\n",
     );
   });
 

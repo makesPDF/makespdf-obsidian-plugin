@@ -197,9 +197,10 @@ function pdfFileNodePaths(canvas: Record<string, unknown>): ReadonlySet<string> 
 }
 
 /**
- * Rewrite every text card through the note pipeline (Obsidian syntax to
- * GFM, then local images inlined as data: URIs) so wikilinks and
- * `![[image]]` embeds in cards render like they do in notes.
+ * Rewrite every text card through the note pipeline (the bundled fenced-block
+ * adapters, then Obsidian syntax to GFM, then local images inlined as data:
+ * URIs) so wikilinks and `![[image]]` embeds in cards render like they do in
+ * notes.
  */
 async function transformTextCards(
   canvas: Record<string, unknown>,

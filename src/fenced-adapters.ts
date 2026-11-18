@@ -90,13 +90,17 @@ export function isAdapterEnabled(
 /**
  * Translate every matching fenced block the enabled adapters understand,
  * leaving every other byte of the document untouched.
+ *
+ * `adapters` is a parameter for tests and future registries; the shipped
+ * plugin always uses {@link BUNDLED_ADAPTERS}.
  */
 export function applyFencedAdapters(
   markdown: string,
   settings: FencedAdapterSettings | undefined,
+  adapters: readonly FencedAdapter[] = BUNDLED_ADAPTERS,
 ): string {
   const byFence = new Map<string, FencedAdapter>();
-  for (const adapter of BUNDLED_ADAPTERS) {
+  for (const adapter of adapters) {
     if (isAdapterEnabled(settings, adapter.id)) byFence.set(adapter.fence, adapter);
   }
   if (byFence.size === 0) return markdown;
@@ -105,7 +109,14 @@ export function applyFencedAdapters(
     const adapter = byFence.get(block.fence);
     if (adapter === undefined) return null;
 
-    const output = adapter.toMarkdown(block.source);
+    let output: string | null;
+    try {
+      output = adapter.toMarkdown(block.source);
+    } catch {
+      // An adapter bug must not reject the whole export with no Notice and no
+      // PDF: fall back to the block exactly as the user wrote it.
+      return null;
+    }
     if (output === null) return null;
 
     // The block occupied whole lines, so its replacement must end with a

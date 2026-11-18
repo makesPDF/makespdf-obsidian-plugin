@@ -66,7 +66,10 @@ export interface PreprocessOptions {
  * `[[wikilink]]`, `==highlight==` or `%%comment%%` shown in a code block is
  * text the user chose to display as code, not Obsidian syntax. An adapter
  * translated its block before the note-level pass, so a translated block is
- * ordinary markdown or HTML by the time these rules see it.
+ * ordinary markdown or HTML by the time these rules see it. This holds for a
+ * fence at the start of a line or indented up to three spaces; see
+ * {@link ../fenced-blocks} for the callout and indented-list positions the
+ * scanner does not find.
  *
  * A `%%...%%` comment is the one rule that can span a fence: a comment that
  * opens outside a code block hides the whole span, including a code block

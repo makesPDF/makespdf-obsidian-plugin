@@ -109,8 +109,13 @@ export:
 
 Obsidian's inline syntax inside a fenced code block is left as written: a
 `#tag`, `[[wikilink]]`, `==highlight==` or `%%comment%%` in a code block is
-not converted, so it shows as code. Note and image embeds are still resolved
-inside a block, as they always have been.
+not converted, so it shows as code. This covers a fence at the start of a line
+or indented up to three spaces; a fence inside a blockquote or callout, or
+indented four or more spaces inside a list item, is not recognised as a code
+block by the exporter, so its contents are converted like ordinary text (the
+same limitation applies to Vtable detection, described below). Note embeds
+(`![[note]]`) are still resolved inside a block, as they always have been;
+image embeds (`![[photo.png]]`) are not, and now print as written.
 
 ### Vtable tables
 
