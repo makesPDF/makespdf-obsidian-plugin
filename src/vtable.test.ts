@@ -224,6 +224,25 @@ describe("vtableToMarkdown: formulas", () => {
     expect(html).toContain("<td>7</td>");
   });
 
+  it("computes a formula stored in the cell text", () => {
+    const html = vtableToMarkdown(
+      table([
+        [{ t: "head" }],
+        [{ t: "2" }],
+        [{ t: "3" }],
+        [{ t: "=SUM(A2:A3)" }],
+      ]),
+    );
+    expect(html).toContain("<td>5</td>");
+    expect(html).not.toContain("> Note:");
+  });
+
+  it("does not mistake prose starting with = for a formula", () => {
+    const html = vtableToMarkdown(table([[{ t: "= not a formula" }]]));
+    expect(html).toContain("<th>= not a formula</th>");
+    expect(html).not.toContain("> Note:");
+  });
+
   it("resolves a reference to a merged cell through its anchor", () => {
     const html = vtableToMarkdown(
       table([

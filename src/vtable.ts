@@ -18,7 +18,8 @@
  *
  * A cell holds `t` (markdown text, with inline HTML), `rs`/`cs` (row and
  * column spans), `a`/`va` (horizontal and vertical alignment), `bg`
- * (background colour), and `f` (a formula). A cell covered by a merge is a
+ * (background colour), and `f` (a formula; a `t` beginning with `=` and
+ * shaped like one is accepted too). A cell covered by a merge is a
  * placeholder with `rs: 0, cs: 0`; it is skipped, because the anchor cell's
  * `rowspan`/`colspan` already covers it.
  *
@@ -137,12 +138,21 @@ function cellText(cell: VtableCell): string {
   return typeof cell.t === "string" ? cell.t : "";
 }
 
-/** The cell's formula, from either field name Vtable has used, or null. */
+/**
+ * The cell's formula, or null. Vtable stores a formula in the cell rather
+ * than a value; the field is `f` (also accepted as `formula`), and a `t` that
+ * begins with `=` and looks like a formula is accepted too, so a block
+ * written either way is calculated.
+ */
 function formulaOf(cell: VtableCell): string | null {
   for (const key of ["f", "formula"] as const) {
     const value = cell[key];
     if (typeof value === "string" && value.trim() !== "") return value;
   }
+  const text = cellText(cell).trim();
+  // A function call, a cell reference, a number or a leading operator; plain
+  // prose that happens to start with "=" is not treated as a formula.
+  if (/^=\s*(?:[A-Za-z]+\s*\(|[A-Za-z]+\d+|[-+(]|\d)/.test(text)) return text;
   return null;
 }
 
