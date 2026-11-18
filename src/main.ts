@@ -314,20 +314,20 @@ export default class MakesPdfPlugin extends Plugin {
     //    body.
     const source = withNoteTitle(this.withPropertyTable(rawMarkdown), file.basename);
 
-    // 2. Translate third-party fenced blocks (the bundled adapters: Vtable
-    //    today). Before the embed resolver so an image embed inside a cell is
-    //    resolved like any other, and before preprocessObsidian so the
-    //    translated HTML is ordinary markdown from here on.
-    const adapted = applyFencedAdapters(source, this.settings.fencedAdapters);
-
-    // 3. Resolve note embeds (recursive, with depth + size limits)
+    // 2. Resolve note embeds (recursive, with depth + size limits)
     let markdown = await resolveNoteEmbeds(
-      adapted,
+      source,
       this.app.vault,
       (linkpath, sourcePath) =>
         this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
       file.path,
     );
+
+    // 3. Translate third-party fenced blocks (the bundled adapters: Vtable
+    //    today). After the embed resolver so a block inside an embedded note
+    //    is translated too, and before preprocessObsidian so the translated
+    //    HTML is ordinary markdown from here on.
+    markdown = applyFencedAdapters(markdown, this.settings.fencedAdapters);
 
     // 4. Convert Obsidian-specific syntax to GFM
     markdown = preprocessObsidian(markdown);
