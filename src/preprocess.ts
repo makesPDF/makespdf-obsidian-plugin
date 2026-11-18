@@ -6,7 +6,7 @@
  */
 
 import { MD_IMAGE_DEST, unwrapImageDest } from "./images";
-import { scanFencedBlocks } from "./fenced-blocks";
+import { scanFencedBlocks, type FencedBlock } from "./fenced-blocks";
 
 /**
  * Map of Obsidian callout types to the closest GFM alert type.
@@ -67,20 +67,78 @@ export interface PreprocessOptions {
  * text the user chose to display as code, not Obsidian syntax. An adapter
  * translated its block before the note-level pass, so a translated block is
  * ordinary markdown or HTML by the time these rules see it.
+ *
+ * A `%%...%%` comment is the one rule that can span a fence: a comment that
+ * opens outside a code block hides the whole span, including a code block
+ * written inside it. Markers shown inside a code block are still code, so
+ * they never open or close a comment.
  */
 export function preprocessObsidian(md: string, options: PreprocessOptions = {}): string {
   const blocks = scanFencedBlocks(md);
   if (blocks.length === 0) return obsidianToGfm(md, options);
 
+  const comments = findCommentSpans(md, blocks);
+
+  // Walk the block and comment ranges in document order: a comment is
+  // removed, a block is kept byte for byte, and the text between them is
+  // converted. A block inside a comment is removed with it.
+  const ranges: { from: number; to: number; kind: "block" | "comment" }[] = [];
+  for (const block of blocks) ranges.push({ from: block.from, to: block.to, kind: "block" });
+  for (const comment of comments) {
+    ranges.push({ from: comment.from, to: comment.to, kind: "comment" });
+  }
+  ranges.sort((a, b) => a.from - b.from);
+
   let result = "";
   let cursor = 0;
-  for (const block of blocks) {
-    result += obsidianToGfm(md.slice(cursor, block.from), options);
-    // Untouched, byte for byte, including its fences.
-    result += md.slice(block.from, block.to);
-    cursor = block.to;
+  for (const range of ranges) {
+    const from = Math.max(range.from, cursor);
+    if (from > cursor) result += obsidianToGfm(md.slice(cursor, from), options);
+    if (range.to <= cursor) continue;
+    if (range.kind === "block") {
+      result += md.slice(from, range.to);
+      cursor = range.to;
+    } else {
+      cursor = range.to;
+    }
   }
   return result + obsidianToGfm(md.slice(cursor), options);
+}
+
+/** A character span to keep or drop, by its offsets in the document. */
+interface TextSpan {
+  from: number;
+  to: number;
+}
+
+/**
+ * Pair the `%%` markers that occur outside fenced code blocks, in order, as a
+ * global comment rule would. A marker inside a fence is code and is ignored,
+ * so it can neither open nor close a comment; an unmatched last marker is
+ * left as text, as the comment rule always did.
+ */
+function findCommentSpans(markdown: string, blocks: FencedBlock[]): TextSpan[] {
+  const markers: number[] = [];
+  const collect = (from: number, to: number) => {
+    let index = markdown.indexOf("%%", from);
+    while (index !== -1 && index + 2 <= to) {
+      markers.push(index);
+      index = markdown.indexOf("%%", index + 2);
+    }
+  };
+
+  let cursor = 0;
+  for (const block of blocks) {
+    collect(cursor, block.from);
+    cursor = block.to;
+  }
+  collect(cursor, markdown.length);
+
+  const spans: TextSpan[] = [];
+  for (let index = 0; index + 1 < markers.length; index += 2) {
+    spans.push({ from: markers[index], to: markers[index + 1] + 2 });
+  }
+  return spans;
 }
 
 function obsidianToGfm(md: string, options: PreprocessOptions): string {
@@ -147,12 +205,16 @@ function obsidianToGfm(md: string, options: PreprocessOptions): string {
   );
 
   // 8. Tags: #tag and #nested/tag -> inline code (but not inside headings or #! patterns)
-  //    Avoid matching inside headings (# Heading), hex colors (#fff), or numbered refs (#123).
-  //    The leading character is captured rather than matched with a lookbehind, because
-  //    lookbehind is unsupported on older iOS WebKit and this plugin runs on mobile.
+  //    Avoid matching inside headings (# Heading), hex colors (#fff), numbered refs (#123),
+  //    or an HTML tag: `<td style="background-color: #f6f8fa">` must keep its colour
+  //    readable, because a backticked value would no longer parse as CSS.
+  //    An HTML tag is matched first and returned untouched; the leading character of a
+  //    tag is captured rather than matched with a lookbehind, because lookbehind is
+  //    unsupported on older iOS WebKit and this plugin runs on mobile.
   result = result.replace(
-    /(^|\s)#([a-zA-Z][a-zA-Z0-9_/-]*)/gm,
-    (_match, lead: string, tag: string) => `${lead}\`#${tag}\``,
+    /<[a-zA-Z/!][^<>\r\n]*>|(^|\s)#([a-zA-Z][a-zA-Z0-9_/-]*)/gm,
+    (match, lead?: string, tag?: string) =>
+      lead === undefined || tag === undefined ? match : `${lead}\`#${tag}\``,
   );
 
   // 9. Callouts: convert Obsidian types to GFM alerts

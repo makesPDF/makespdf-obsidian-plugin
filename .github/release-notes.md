@@ -19,9 +19,9 @@ Vtable tables from the third-party Vtable plugin now print as real tables.
 
 ## Fixes
 
-- Obsidian syntax inside a fenced code block (`[[wikilinks]]`,
-  `==highlights==`, `#tags`, `%%comments%%`) is no longer converted: a code
-  block prints exactly as written.
+- Obsidian's inline syntax inside a fenced code block (`[[wikilinks]]`,
+  `==highlights==`, `#tags`, `%%comments%%`) is no longer converted, so it
+  prints as code. Note and image embeds are still resolved inside a block.
 
 Release assets carry a build provenance attestation:
 

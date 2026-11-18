@@ -11,6 +11,24 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("%%block\ncomment%%rest")).toBe("rest");
   });
 
+  it("strips a comment that encloses a fenced code block", () => {
+    const input = "before\n%%\n```js\nconst a = 1;\n```\n%%\nafter\n";
+    expect(preprocessObsidian(input)).toBe("before\n\nafter\n");
+  });
+
+  it("strips a commented-out fence even when no adapter translated it", () => {
+    const input = "%%\n```vtable\n{\"rows\":[]}\n```\n%%\n";
+    // Only the markers and their span go; the newline after the closer stays,
+    // exactly as the comment rule did before fences were protected.
+    expect(preprocessObsidian(input)).toBe("\n");
+  });
+
+  it("leaves an unmatched comment marker as text", () => {
+    expect(preprocessObsidian("50%% done")).toBe("50%% done");
+    const unclosed = "%%a fence\n```js\nlet a = 1;\n```\n";
+    expect(preprocessObsidian(unclosed)).toBe(unclosed);
+  });
+
   it("strips block reference IDs", () => {
     expect(preprocessObsidian("Some paragraph ^abc-123")).toBe("Some paragraph");
   });
@@ -95,6 +113,13 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("some text #project")).toBe("some text `#project`");
     expect(preprocessObsidian("tagged #nested/tag here")).toBe(
       "tagged `#nested/tag` here",
+    );
+  });
+
+  it("leaves a colour inside an HTML tag's attribute alone", () => {
+    const input = '<td style="background-color: #f6f8fa">x</td> #tag';
+    expect(preprocessObsidian(input)).toBe(
+      '<td style="background-color: #f6f8fa">x</td> `#tag`',
     );
   });
 

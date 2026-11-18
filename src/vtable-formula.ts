@@ -10,14 +10,27 @@
  * ranges inside an aggregate, and `SUM`, `AVERAGE`/`AVG`, `MIN`, `MAX`,
  * `COUNT` and `ABS`. Anything else returns null, and the adapter shows the
  * formula's source text instead of inventing a value. Non-numeric cells are
- * ignored by the aggregates, as a spreadsheet ignores text in a SUM.
+ * ignored by the aggregates, as a spreadsheet ignores text in a SUM, but a
+ * cell whose own formula failed fails the aggregate rather than dropping out
+ * of a total that would then look right.
  *
  * Kept free of the `obsidian` import and unit-tested directly (see
  * vtable-formula.test.ts).
  */
 
-/** A 1-based cell reference resolved to a number, or null when it has none. */
-export type CellReader = (row: number, column: number) => number | null;
+/**
+ * A cell reference that failed to compute: it holds a formula whose value is
+ * invalid, or one that is cyclic. Distinct from null, which is a blank or text
+ * cell an aggregate ignores, so a range can tell "nothing to add" from "the
+ * total would be wrong".
+ */
+export const FORMULA_ERROR: unique symbol = Symbol("formula-error");
+
+/** What reading a cell yields: a number, no number, or a failed formula. */
+export type CellResult = number | null | typeof FORMULA_ERROR;
+
+/** A 1-based cell reference resolved to a number, null, or a failure. */
+export type CellReader = (row: number, column: number) => CellResult;
 
 /** A token: a number, a cell reference, an identifier or one character. */
 type Token =
@@ -94,10 +107,10 @@ function tokenize(source: string): Token[] | null {
   return tokens;
 }
 
-/** A parsed argument: one value, or the values a range expands to. */
+/** A parsed argument: one value, or the cells a range expands to. */
 type Argument =
   | { kind: "value"; value: number | null }
-  | { kind: "cells"; values: (number | null)[] };
+  | { kind: "cells"; values: CellResult[] };
 
 /**
  * A recursive-descent parser over the token list. Every method returns null
@@ -179,7 +192,10 @@ class FormulaParser {
 
     if (token.kind === "ref") {
       this.position++;
-      return this.read(token.row, token.column);
+      // A failed referenced formula fails this one too; a text cell read on
+      // its own already yields null.
+      const value = this.read(token.row, token.column);
+      return typeof value === "number" ? value : null;
     }
 
     if (token.kind === "name") {
@@ -246,7 +262,7 @@ class FormulaParser {
       after.kind === "ref"
     ) {
       this.position += 3;
-      const values: (number | null)[] = [];
+      const values: CellResult[] = [];
       const rowFrom = Math.min(start.row, after.row);
       const rowTo = Math.max(start.row, after.row);
       const columnFrom = Math.min(start.column, after.column);
@@ -264,17 +280,35 @@ class FormulaParser {
   }
 }
 
-/** The numeric values an argument contributes, skipping blanks and text. */
-function numbersOf(argument: Argument): number[] {
-  if (argument.kind === "value") {
-    return argument.value === null ? [] : [argument.value];
+/**
+ * The numeric values an argument contributes, skipping blanks and text. Null
+ * means the argument contains a failed formula, so the caller must fail too
+ * rather than return a plausible total over the surviving numbers.
+ */
+function numbersOf(argument: Argument): number[] | null {
+  const values: CellResult[] =
+    argument.kind === "value"
+      ? argument.value === null
+        ? []
+        : [argument.value]
+      : argument.values;
+
+  const numbers: number[] = [];
+  for (const value of values) {
+    if (value === FORMULA_ERROR) return null;
+    if (value !== null) numbers.push(value);
   }
-  return argument.values.filter((value): value is number => value !== null);
+  return numbers;
 }
 
 /** Apply a supported function; an unknown name fails the formula. */
 function applyFunction(name: string, args: Argument[]): number | null {
-  const numbers = args.flatMap(numbersOf);
+  const numbers: number[] = [];
+  for (const argument of args) {
+    const values = numbersOf(argument);
+    if (values === null) return null;
+    numbers.push(...values);
+  }
 
   switch (name) {
     case "SUM":
@@ -290,9 +324,11 @@ function applyFunction(name: string, args: Argument[]): number | null {
     case "MAX":
       return numbers.length === 0 ? null : Math.max(...numbers);
     case "ABS": {
-      if (args.length !== 1) return null;
-      const [value] = numbersOf(args[0]);
-      return value === undefined ? null : Math.abs(value);
+      // A scalar function takes one value, not a range: a range here is a
+      // mistake, and taking its first number would silently hide it.
+      if (args.length !== 1 || args[0].kind !== "value") return null;
+      const value = args[0].value;
+      return value === null ? null : Math.abs(value);
     }
     default:
       return null;

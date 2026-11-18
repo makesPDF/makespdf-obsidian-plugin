@@ -4,7 +4,12 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { evaluateFormula, formatFormulaValue } from "./vtable-formula";
+import {
+  evaluateFormula,
+  formatFormulaValue,
+  FORMULA_ERROR,
+  type CellReader,
+} from "./vtable-formula";
 
 /** A reader over a small numeric grid: rows are 1-based cell rows. */
 function grid(values: (number | null)[][]): (row: number, column: number) => number | null {
@@ -60,6 +65,23 @@ describe("evaluateFormula", () => {
     const sparse = grid([[1, null], [2, null]]);
     expect(evaluateFormula("=SUM(A1:B2)", sparse)).toBe(3);
     expect(evaluateFormula("=COUNT(A1:B2)", sparse)).toBe(2);
+  });
+
+  it("fails an aggregate over a range that contains a failed formula", () => {
+    const read: CellReader = (row, column) => {
+      if (row === 0 && column === 0) return 1;
+      if (row === 1 && column === 0) return FORMULA_ERROR;
+      return null;
+    };
+    expect(evaluateFormula("=SUM(A1:A3)", read)).toBeNull();
+    expect(evaluateFormula("=AVERAGE(A1:A3)", read)).toBeNull();
+    // A failed reference fails an expression too, not just an aggregate.
+    expect(evaluateFormula("=A2+1", read)).toBeNull();
+  });
+
+  it("fails a scalar function given a range instead of taking its first value", () => {
+    expect(evaluateFormula("=ABS(A1:A2)", SMALL)).toBeNull();
+    expect(evaluateFormula("=ABS(A1)", SMALL)).toBe(10);
   });
 
   it("fails a direct reference to a cell with no number", () => {

@@ -88,6 +88,21 @@ describe("applyFencedAdapters", () => {
 
     expect(out).toContain('<th>Page and ![photo.png](<photo.png>) and `#tag`</th>');
   });
+
+  it("keeps a hex background colour through preprocessObsidian", () => {
+    const source = '{"rows":[[{"t":"head","bg":"#f6f8fa"}]]}';
+    const md = `\`\`\`vtable\n${source}\n\`\`\`\n`;
+
+    const out = preprocessObsidian(applyFencedAdapters(md, { vtable: true }));
+
+    expect(out).toContain('<th style="background-color: #f6f8fa">head</th>');
+  });
+
+  it("drops a vtable block that is inside a %% comment, on or off", () => {
+    const md = `%%\n\`\`\`vtable\n${SAMPLE}\n\`\`\`\n%%\n`;
+    expect(preprocessObsidian(applyFencedAdapters(md, { vtable: true }))).toBe("\n");
+    expect(preprocessObsidian(applyFencedAdapters(md, { vtable: false }))).toBe("\n");
+  });
 });
 
 describe("normalizeFencedAdapterSettings", () => {

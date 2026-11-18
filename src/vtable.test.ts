@@ -191,12 +191,15 @@ describe("vtableToMarkdown: invalid input stays a code block", () => {
     expect(vtableToMarkdown('{"rows": [[null]]}')).toBeNull();
   });
 
-  it("returns null beyond the row and cell caps", () => {
+  it("renders a table longer than 500 rows, unless it passes the cell cap", () => {
     const rows = Array.from({ length: 501 }, () => [{ t: "x" }]);
-    expect(vtableToMarkdown(table(rows))).toBeNull();
+    expect(vtableToMarkdown(table(rows))).toContain("</table>");
 
+    // The cap is the engine's 5,000-cell one, not the row count.
     const wide = [Array.from({ length: 5_001 }, () => ({ t: "x" }))];
     expect(vtableToMarkdown(table(wide))).toBeNull();
+    const tooManyRows = Array.from({ length: 5_001 }, () => [{ t: "x" }]);
+    expect(vtableToMarkdown(table(tooManyRows))).toBeNull();
   });
 });
 
@@ -241,6 +244,35 @@ describe("vtableToMarkdown: formulas", () => {
     const html = vtableToMarkdown(table([[{ t: "= not a formula" }]]));
     expect(html).toContain("<th>= not a formula</th>");
     expect(html).not.toContain("> Note:");
+
+    const digits = vtableToMarkdown(table([[{ t: "= 5 items" }]]));
+    expect(digits).toContain("<th>= 5 items</th>");
+    expect(digits).not.toContain("> Note:");
+  });
+
+  it("fails an aggregate over a range that contains a failed formula", () => {
+    const html = vtableToMarkdown(
+      table([
+        [{ t: "Item" }, { t: "Amount" }],
+        [{ t: "A" }, { t: "1" }],
+        [{ t: "B" }, { f: "=1/0" }],
+        [{ t: "Total" }, { f: "=SUM(B2:B3)" }],
+      ]),
+    );
+    expect(html).toContain("<td>=SUM(B2:B3)</td>");
+    expect(html).toContain("could not be calculated");
+  });
+
+  it("fails a self-including aggregate instead of a partial total", () => {
+    const html = vtableToMarkdown(
+      table([
+        [{ t: "head" }],
+        [{ t: "1" }],
+        [{ f: "=SUM(A1:A3)" }],
+      ]),
+    );
+    expect(html).toContain("<td>=SUM(A1:A3)</td>");
+    expect(html).toContain("could not be calculated");
   });
 
   it("resolves a reference to a merged cell through its anchor", () => {

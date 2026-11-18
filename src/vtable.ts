@@ -45,13 +45,18 @@
  * vtable.test.ts).
  */
 
-import { evaluateFormula, formatFormulaValue, type CellReader } from "./vtable-formula";
+import {
+  evaluateFormula,
+  formatFormulaValue,
+  FORMULA_ERROR,
+  type CellReader,
+  type CellResult,
+} from "./vtable-formula";
 
 /** The info-string name of a Vtable block. */
 export const VTABLE_FENCE = "vtable";
 
-/** Guards against turning a pathological block into a huge request. */
-const MAX_ROWS = 500;
+/** The engine's own cap on an HTML table; a bigger block stays a code block. */
 const MAX_CELLS = 5_000;
 /** The engine accepts at most three span digits. */
 const MAX_SPAN = 999;
@@ -97,7 +102,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Turn one `rows` entry into cells, or null when the grid is malformed. */
 function parseRows(raw: unknown): VtableCell[][] | null {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ROWS) return null;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
 
   const rows: VtableCell[][] = [];
   let cells = 0;
@@ -150,9 +155,11 @@ function formulaOf(cell: VtableCell): string | null {
     if (typeof value === "string" && value.trim() !== "") return value;
   }
   const text = cellText(cell).trim();
-  // A function call, a cell reference, a number or a leading operator; plain
-  // prose that happens to start with "=" is not treated as a formula.
-  if (/^=\s*(?:[A-Za-z]+\s*\(|[A-Za-z]+\d+|[-+(]|\d)/.test(text)) return text;
+  // Only a shape that can only be a formula: a function call, a cell
+  // reference, an arithmetic expression, or a leading operator. Prose that
+  // happens to start with "=" ("= 5 items") is text, not a formula that
+  // failed, so it must not add the "could not be calculated" note.
+  if (/^=\s*(?:[A-Za-z]+\s*\(|[A-Za-z]+\d+|\d+\s*[-+*/]|[-+(])/.test(text)) return text;
   return null;
 }
 
@@ -349,10 +356,10 @@ function renderTable(table: VtableTable): RenderedTable | null {
   const { rows } = table;
   const anchors = anchorGrid(rows);
   const computing = new Set<string>();
-  const computed = new Map<string, number | null>();
+  const computed = new Map<string, CellResult>();
 
   /** The numeric value of a cell, computing formulas on demand. */
-  const numericValue = (row: number, column: number): number | null => {
+  const numericValue = (row: number, column: number): CellResult => {
     if (row < 0 || row >= rows.length) return null;
     if (column < 0 || column >= rows[row].length) return null;
 
@@ -363,7 +370,7 @@ function renderTable(table: VtableTable): RenderedTable | null {
     if (formula === null) return numberOfText(cellText(cell));
 
     const key = `${anchor.row},${anchor.column}`;
-    if (computing.has(key)) return null; // circular reference: fail the formula
+    if (computing.has(key)) return FORMULA_ERROR; // circular: fail the formula
 
     const cached = computed.get(key);
     if (cached !== undefined) return cached;
@@ -371,7 +378,10 @@ function renderTable(table: VtableTable): RenderedTable | null {
     computing.add(key);
     const read: CellReader = (targetRow, targetColumn) =>
       numericValue(targetRow, targetColumn);
-    const value = evaluateFormula(formula, read);
+    // A formula this evaluator cannot compute is a failed cell, not a blank
+    // one: an aggregate over a range that includes it must fail rather than
+    // silently add up the rest.
+    const value = evaluateFormula(formula, read) ?? FORMULA_ERROR;
     computing.delete(key);
     computed.set(key, value);
     return value;
@@ -397,7 +407,7 @@ function renderTable(table: VtableTable): RenderedTable | null {
     const formula = formulaOf(cell);
     if (formula !== null) {
       const value = numericValue(row, column);
-      if (value !== null) return formatNumber(value);
+      if (typeof value === "number") return formatNumber(value);
       notes.add("formulas that could not be calculated are shown as text");
       return formula;
     }

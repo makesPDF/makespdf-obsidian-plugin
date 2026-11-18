@@ -107,9 +107,10 @@ export:
 | trailing `^block-id` | removed |
 | a `vtable` fenced block (Vtable plugin) | an HTML table with merged cells, when **Vtable tables** is on |
 
-The inside of a fenced code block is left exactly as written: a `#tag`,
-`[[wikilink]]`, `==highlight==` or `%%comment%%` in a code block prints as
-code, not as Obsidian syntax.
+Obsidian's inline syntax inside a fenced code block is left as written: a
+`#tag`, `[[wikilink]]`, `==highlight==` or `%%comment%%` in a code block is
+not converted, so it shows as code. Note and image embeds are still resolved
+inside a block, as they always have been.
 
 ### Vtable tables
 
@@ -134,7 +135,10 @@ reading view does:
 
 **Vtable tables** is on by default. Turn it off in the settings to send the
 block exactly as written, where it prints as a code block. A block whose JSON
-is invalid, or whose shape is not a table, always stays a code block. Nothing
+is invalid, or whose shape is not a table, always stays a code block, and so
+does a table over 5,000 cells (the PDF engine's own table limit). A fence
+inside a blockquote or callout, or one indented four or more spaces inside a
+list, is not recognised as a Vtable table and stays a code block too. Nothing
 is loaded from the Vtable plugin at runtime: the adapter is bundled with this
 plugin and works without Vtable installed.
 
