@@ -11,6 +11,7 @@ import {
   isAdapterEnabled,
   normalizeFencedAdapterSettings,
 } from "./fenced-adapters";
+import { preprocessObsidian } from "./preprocess";
 
 const SAMPLE = '{"rows":[[{"t":"Example merged cell 1","rs":1,"cs":2,"a":"c"},{"t":"","rs":0,"cs":0}]]}';
 
@@ -75,6 +76,17 @@ describe("applyFencedAdapters", () => {
     const md = note();
     expect(applyFencedAdapters(md, { vtable: false })).toBe(md);
     expect(applyFencedAdapters(md, {})).toContain("<table>");
+  });
+
+  it("hands the translated cells to preprocessObsidian as ordinary markdown", () => {
+    const source = JSON.stringify({
+      rows: [[{ t: "[[Page]] and ![[photo.png]] and #tag" }]],
+    });
+    const md = `\`\`\`vtable\n${source}\n\`\`\`\n`;
+
+    const out = preprocessObsidian(applyFencedAdapters(md, { vtable: true }));
+
+    expect(out).toContain('<th>Page and ![photo.png](<photo.png>) and `#tag`</th>');
   });
 });
 

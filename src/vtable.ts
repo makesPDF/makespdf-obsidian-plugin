@@ -329,7 +329,7 @@ export function vtableToMarkdown(source: string): string | null {
   parts.push(rendered.html);
   if (rendered.notes.length > 0) {
     parts.push("");
-    parts.push(`> Adapter note: ${rendered.notes.join("; ")}.`);
+    parts.push(`> Note: ${rendered.notes.join("; ")}.`);
   }
   return `${parts.join("\n")}\n`;
 }

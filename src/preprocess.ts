@@ -64,9 +64,9 @@ export interface PreprocessOptions {
  *
  * The inside of a fenced code block is left exactly as written: a `#tag`,
  * `[[wikilink]]`, `==highlight==` or `%%comment%%` shown in a code block is
- * text the user chose to display as code, not Obsidian syntax. The adapters
- * registry runs before this, so a block it translates is ordinary markdown or
- * HTML by the time these rules see it.
+ * text the user chose to display as code, not Obsidian syntax. An adapter
+ * translated its block before the note-level pass, so a translated block is
+ * ordinary markdown or HTML by the time these rules see it.
  */
 export function preprocessObsidian(md: string, options: PreprocessOptions = {}): string {
   const blocks = scanFencedBlocks(md);

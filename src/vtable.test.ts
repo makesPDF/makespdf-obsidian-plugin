@@ -242,7 +242,7 @@ describe("vtableToMarkdown: formulas", () => {
       ]),
     );
     expect(html).toContain("<td>=NOTAFUNCTION(1)</td>");
-    expect(html).toContain("> Adapter note: formulas that could not be calculated are shown as text.");
+    expect(html).toContain("> Note: formulas that could not be calculated are shown as text.");
   });
 
   it("fails a circular reference instead of hanging", () => {
@@ -263,7 +263,7 @@ describe("vtableToMarkdown: extras become text with a note", () => {
       table([[{ t: "Sales" }, { vbarchart: { data: [1, 2] } }]]),
     );
     expect(html).toContain("<th>[chart: vbarchart]</th>");
-    expect(html).toContain("> Adapter note: charts are shown as text.");
+    expect(html).toContain("> Note: charts are shown as text.");
   });
 
   it("shows a chart's own text when it has one", () => {
@@ -292,7 +292,7 @@ describe("vtableToMarkdown: extras become text with a note", () => {
       table([[{ t: "$x$" }, { vbarchart: {} }, { diag: "a / b" }]]),
     );
     expect(
-      html?.match(/^> Adapter note: .+$/gm),
+      html?.match(/^> Note: .+$/gm),
     ).toHaveLength(1);
   });
 });
