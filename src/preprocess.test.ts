@@ -183,4 +183,46 @@ Some paragraph with a reference ^ref-1
     expect(output).toContain("`#project`");
     expect(output).toContain("`#status/active`");
   });
+
+  it("leaves the inside of a fenced code block alone", () => {
+    const input = [
+      "outside [[Page]] and ==highlight== and #tag and %%comment%%",
+      "```md",
+      "inside [[Page]] and ==highlight== and #tag and %%comment%% ^block-1",
+      "```",
+      "outside again [[Other]]",
+    ].join("\n");
+
+    expect(preprocessObsidian(input)).toBe(
+      [
+        "outside Page and <mark>highlight</mark> and `#tag` and ",
+        "```md",
+        "inside [[Page]] and ==highlight== and #tag and %%comment%% ^block-1",
+        "```",
+        "outside again Other",
+      ].join("\n"),
+    );
+  });
+
+  it("leaves a vtable block alone so invalid JSON still prints as code", () => {
+    const input = '```vtable\n{"rows": [[{"t": "[[not a link]] #notatag"}]]}\n```';
+
+    expect(preprocessObsidian(input)).toBe(input);
+  });
+
+  it("protects tilde fences and a fence to the end of the document", () => {
+    expect(preprocessObsidian("~~~\n[[Page]] #tag\n~~~")).toBe(
+      "~~~\n[[Page]] #tag\n~~~",
+    );
+    expect(preprocessObsidian("before [[Page]]\n```\n[[Page]] #tag")).toBe(
+      "before Page\n```\n[[Page]] #tag",
+    );
+  });
+
+  it("still converts text around a fence and inside a translated block", () => {
+    const input = "[[Page]]\n```vtable\n{}\n```\n#tag";
+    expect(preprocessObsidian(input)).toBe(
+      "Page\n```vtable\n{}\n```\n`#tag`",
+    );
+  });
 });

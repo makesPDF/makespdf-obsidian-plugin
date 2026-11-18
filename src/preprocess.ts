@@ -6,6 +6,7 @@
  */
 
 import { MD_IMAGE_DEST, unwrapImageDest } from "./images";
+import { scanFencedBlocks } from "./fenced-blocks";
 
 /**
  * Map of Obsidian callout types to the closest GFM alert type.
@@ -60,8 +61,29 @@ export interface PreprocessOptions {
  *
  * Handles: wikilinks, image embeds with resize, highlights, comments,
  * block references, tags, callout titles/types, and image resize syntax.
+ *
+ * The inside of a fenced code block is left exactly as written: a `#tag`,
+ * `[[wikilink]]`, `==highlight==` or `%%comment%%` shown in a code block is
+ * text the user chose to display as code, not Obsidian syntax. The adapters
+ * registry runs before this, so a block it translates is ordinary markdown or
+ * HTML by the time these rules see it.
  */
 export function preprocessObsidian(md: string, options: PreprocessOptions = {}): string {
+  const blocks = scanFencedBlocks(md);
+  if (blocks.length === 0) return obsidianToGfm(md, options);
+
+  let result = "";
+  let cursor = 0;
+  for (const block of blocks) {
+    result += obsidianToGfm(md.slice(cursor, block.from), options);
+    // Untouched, byte for byte, including its fences.
+    result += md.slice(block.from, block.to);
+    cursor = block.to;
+  }
+  return result + obsidianToGfm(md.slice(cursor), options);
+}
+
+function obsidianToGfm(md: string, options: PreprocessOptions): string {
   let result = md;
 
   // 1. Strip comments %%...%% (block and inline)
