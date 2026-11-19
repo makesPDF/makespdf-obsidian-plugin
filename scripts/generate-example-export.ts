@@ -6,7 +6,9 @@
  * shipped pipeline: title heading, Obsidian-to-GFM conversion, image inlining.
  * (The note has no embeds, so main.ts's resolveNoteEmbeds step, which needs a
  * real vault, would be a no-op and is skipped. It has no local images either,
- * but the inliner is still called so the script follows the real path.)
+ * but the inliner is still called so the script follows the real path. It also
+ * has no third-party fenced blocks, so main.ts's applyFencedAdapters step is
+ * skipped too; a note with a `vtable` block would differ here.)
  *
  * The render is sent with no API key on purpose: the `makespdf.com` footer in
  * the image is the anonymous-caller watermark, and the README describes an

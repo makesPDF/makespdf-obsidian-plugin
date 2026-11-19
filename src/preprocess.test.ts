@@ -11,6 +11,24 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("%%block\ncomment%%rest")).toBe("rest");
   });
 
+  it("strips a comment that encloses a fenced code block", () => {
+    const input = "before\n%%\n```js\nconst a = 1;\n```\n%%\nafter\n";
+    expect(preprocessObsidian(input)).toBe("before\n\nafter\n");
+  });
+
+  it("strips a commented-out fence even when no adapter translated it", () => {
+    const input = "%%\n```vtable\n{\"rows\":[]}\n```\n%%\n";
+    // Only the markers and their span go; the newline after the closer stays,
+    // exactly as the comment rule did before fences were protected.
+    expect(preprocessObsidian(input)).toBe("\n");
+  });
+
+  it("leaves an unmatched comment marker as text", () => {
+    expect(preprocessObsidian("50%% done")).toBe("50%% done");
+    const unclosed = "%%a fence\n```js\nlet a = 1;\n```\n";
+    expect(preprocessObsidian(unclosed)).toBe(unclosed);
+  });
+
   it("strips block reference IDs", () => {
     expect(preprocessObsidian("Some paragraph ^abc-123")).toBe("Some paragraph");
   });
@@ -98,6 +116,13 @@ describe("preprocessObsidian", () => {
     );
   });
 
+  it("leaves a colour inside an HTML tag's attribute alone", () => {
+    const input = '<td style="background-color: #f6f8fa">x</td> #tag';
+    expect(preprocessObsidian(input)).toBe(
+      '<td style="background-color: #f6f8fa">x</td> `#tag`',
+    );
+  });
+
   it("does not convert headings to tags", () => {
     expect(preprocessObsidian("# Heading")).toBe("# Heading");
     expect(preprocessObsidian("## Sub Heading")).toBe("## Sub Heading");
@@ -182,5 +207,57 @@ Some paragraph with a reference ^ref-1
     // Tags as inline code
     expect(output).toContain("`#project`");
     expect(output).toContain("`#status/active`");
+  });
+
+  it("leaves the inside of a fenced code block alone", () => {
+    const input = [
+      "outside [[Page]] and ==highlight== and #tag and %%comment%%",
+      "```md",
+      "inside [[Page]] and ==highlight== and #tag and %%comment%% ^block-1",
+      "```",
+      "outside again [[Other]]",
+    ].join("\n");
+
+    expect(preprocessObsidian(input)).toBe(
+      [
+        "outside Page and <mark>highlight</mark> and `#tag` and ",
+        "```md",
+        "inside [[Page]] and ==highlight== and #tag and %%comment%% ^block-1",
+        "```",
+        "outside again Other",
+      ].join("\n"),
+    );
+  });
+
+  it("leaves a vtable block alone so invalid JSON still prints as code", () => {
+    const input = '```vtable\n{"rows": [[{"t": "[[not a link]] #notatag"}]]}\n```';
+
+    expect(preprocessObsidian(input)).toBe(input);
+  });
+
+  it("protects tilde fences and a fence to the end of the document", () => {
+    expect(preprocessObsidian("~~~\n[[Page]] #tag\n~~~")).toBe(
+      "~~~\n[[Page]] #tag\n~~~",
+    );
+    expect(preprocessObsidian("before [[Page]]\n```\n[[Page]] #tag")).toBe(
+      "before Page\n```\n[[Page]] #tag",
+    );
+  });
+
+  it("still converts text around a fence and inside a translated block", () => {
+    const input = "[[Page]]\n```vtable\n{}\n```\n#tag";
+    expect(preprocessObsidian(input)).toBe(
+      "Page\n```vtable\n{}\n```\n`#tag`",
+    );
+  });
+
+  it("converts the body when the front matter holds an unbalanced fence", () => {
+    const input =
+      "---\nsample: |\n  ```js\n  const a = 1;\n---\n\n# Title\n[[Page]] and #tag\n";
+
+    const output = preprocessObsidian(input);
+
+    expect(output).toContain("Page and `#tag`");
+    expect(output).toContain("```js");
   });
 });

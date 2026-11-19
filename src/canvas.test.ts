@@ -16,6 +16,7 @@ import {
   type CanvasVaultAdapter,
 } from "./canvas";
 import { bytesToDataUri } from "./image-encode";
+import { applyFencedAdapters } from "./fenced-adapters";
 import {
   fakeCanvasCalls,
   fakeDecode,
@@ -376,6 +377,45 @@ describe("buildCanvasExport", () => {
     expect(body.files?.["notes/spec.md"]?.markdown).toContain("The paragraph. ^key-block");
     // The subpath still rides on the node; the server applies it.
     expect(body.canvas.nodes[1].subpath).toBe("#^key-block");
+  });
+
+  it("runs the bundled adapters on text cards before preprocessing", async () => {
+    const cardText = [
+      "```vtable",
+      '{"rows":[[{"t":"Merged","rs":1,"cs":2,"a":"c"},{"t":"","rs":0,"cs":0}]]}',
+      "```",
+      "and [[Page]]",
+    ].join("\n");
+
+    const body = await buildOk(
+      canvasTextOf([{ id: "t", type: "text", text: cardText, x: 0, y: 0, width: 300, height: 200 }]),
+      { applyAdapters: (markdown) => applyFencedAdapters(markdown, { vtable: true }) },
+    );
+
+    const sent = body.canvas.nodes[0].text as string;
+    expect(sent).toContain('<th colspan="2" align="center">Merged</th>');
+    expect(sent).not.toContain("```vtable");
+    // Obsidian syntax around the block is still converted.
+    expect(sent).toContain("and Page");
+  });
+
+  it("runs the bundled adapters on a linked note's markdown", async () => {
+    vaultFiles.set("notes/spec.md", {
+      extension: "md",
+      text: "```vtable\n" + '{"rows":[[{"t":"Head"}],[{"t":"Body"}]]}' + "\n```\n",
+    });
+
+    const body = await buildOk(
+      canvasTextOf([
+        { id: "n", type: "file", file: "notes/spec.md", x: 0, y: 0, width: 300, height: 200 },
+      ]),
+      { applyAdapters: (markdown) => applyFencedAdapters(markdown, { vtable: true }) },
+    );
+
+    const sent = body.files?.["notes/spec.md"]?.markdown as string;
+    expect(sent).toContain("<th>Head</th>");
+    expect(sent).toContain("<td>Body</td>");
+    expect(sent).not.toContain("```vtable");
   });
 
   it("preprocesses text cards and inlines their embeds, leaving the input text untouched", async () => {

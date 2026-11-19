@@ -106,6 +106,11 @@ export interface CanvasExportDeps {
   vault: CanvasVaultAdapter;
   /** The "Properties to include" table, as the note export applies it. */
   withPropertyTable: (markdown: string) => string;
+  /**
+   * Bundled fenced-block adapters (Vtable today), as the note export applies
+   * them. Optional so a caller that has none leaves the blocks as code.
+   */
+  applyAdapters?: (markdown: string) => string;
   /** Canvas factory for image downscaling (Obsidian's `createEl` in main.ts). */
   createCanvas: () => HTMLCanvasElement;
   /** Test hook; defaults to CANVAS_BODY_LIMIT. */
@@ -192,9 +197,10 @@ function pdfFileNodePaths(canvas: Record<string, unknown>): ReadonlySet<string> 
 }
 
 /**
- * Rewrite every text card through the note pipeline (Obsidian syntax to
- * GFM, then local images inlined as data: URIs) so wikilinks and
- * `![[image]]` embeds in cards render like they do in notes.
+ * Rewrite every text card through the note pipeline (the bundled fenced-block
+ * adapters, then Obsidian syntax to GFM, then local images inlined as data:
+ * URIs) so wikilinks and `![[image]]` embeds in cards render like they do in
+ * notes.
  */
 async function transformTextCards(
   canvas: Record<string, unknown>,
@@ -205,7 +211,8 @@ async function transformTextCards(
   for (const node of canvas.nodes) {
     if (!isRecord(node)) continue;
     if (node.type !== "text" || typeof node.text !== "string") continue;
-    const preprocessed = preprocessObsidian(node.text);
+    const adapted = deps.applyAdapters?.(node.text) ?? node.text;
+    const preprocessed = preprocessObsidian(adapted);
     node.text = await inlineVaultImages(
       preprocessed,
       deps.vault,
@@ -274,6 +281,7 @@ async function fileEntry(
     try {
       let text = await deps.vault.readText(file);
       text = deps.withPropertyTable(text);
+      text = deps.applyAdapters?.(text) ?? text;
       // Unlike note export, keep ` ^block-id` markers: the server resolves
       // a card's `#^blockid` subpath by finding the marker in this text, and
       // strips it from the block it renders. Stripping it here would make

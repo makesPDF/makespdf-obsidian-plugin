@@ -105,6 +105,47 @@ export:
 | `#tag`, `#nested/tag` | inline code |
 | `> [!tip]`, `> [!danger]` and other callouts | the closest GFM alert, with its icon; a custom title stays in the header |
 | trailing `^block-id` | removed |
+| a `vtable` fenced block (Vtable plugin) | an HTML table with merged cells, when **Vtable tables** is on |
+
+Obsidian's inline syntax inside a fenced code block is left as written: a
+`#tag`, `[[wikilink]]`, `==highlight==` or `%%comment%%` in a code block is
+not converted, so it shows as code. This covers a fence at the start of a line
+or indented up to three spaces; a fence inside a blockquote or callout, or
+indented four or more spaces inside a list item, is not recognised as a code
+block by the exporter, so its contents are converted like ordinary text (the
+same limitation applies to Vtable detection, described below). Note embeds
+(`![[note]]`) are still resolved inside a block, as they always have been;
+image embeds (`![[photo.png]]`) are not, and now print as written.
+
+### Vtable tables
+
+[Vtable](https://community.obsidian.md/plugins/vtable) stores a table as one
+JSON object in a `vtable` fenced block. The plugin translates that block into
+an HTML table at export time, so the PDF shows the table the way Obsidian's
+reading view does:
+
+- row and column spans become `rowspan` / `colspan`; a merge's placeholder
+  cells are skipped
+- the first row becomes the table header, and per-cell alignment and
+  background colour are kept
+- Vtable's line styles map to our borders: `noline` and `off` print without
+  cell borders, while `three` and `hline` use the default table borders
+- formulas are calculated by the plugin and printed as values: arithmetic,
+  references and ranges, `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT` and `ABS`
+- charts, diagonal split cells and `$math$` are printed as text, with a note
+  under the table, because the PDF has no equivalent
+- `colWidths` is a hint at most and is not used: columns size to their content
+- zebra striping and the header background are theme choices in the PDF, not
+  per-table settings, so Vtable's `zebra` and `noHeaderBg` are not represented
+
+**Vtable tables** is on by default. Turn it off in the settings to send the
+block exactly as written, where it prints as a code block. A block whose JSON
+is invalid, or whose shape is not a table, always stays a code block, and so
+does a table over 5,000 cells (the PDF engine's own table limit). A fence
+inside a blockquote or callout, or one indented four or more spaces inside a
+list, is not recognised as a Vtable table and stays a code block too. Nothing
+is loaded from the Vtable plugin at runtime: the adapter is bundled with this
+plugin and works without Vtable installed.
 
 Code blocks are syntax highlighted, tables keep their alignment, and footnotes,
 task lists, and Mermaid diagrams render natively. Emoji render in colour, and
@@ -181,8 +222,9 @@ between the card and its continuation in both directions.
 over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 
 - The board's JSON is sent as-is, apart from each card's text, which is
-  preprocessed like a note's — wikilinks, callouts, highlights and
-  `![[image]]` embeds inside cards work as they do in notes.
+  preprocessed like a note's — wikilinks, callouts, highlights,
+  `![[image]]` embeds and `vtable` blocks inside cards work as they do in
+  notes.
 - Images referenced by the board (file nodes and group backgrounds) are read
   from your vault and inlined. Images over 2400 pixels on their long edge are
   downscaled before sending.
@@ -221,6 +263,7 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 | Page number position | Right | Right, Center, or Left. Only used when page numbers are on. |
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
 | Properties to include | empty | Comma-separated property names to print as a table at the top of the PDF, for example `status, owner, due`. Empty prints none; `*` prints every property. |
+| Vtable tables | On | Translate `vtable` fenced blocks from the Vtable plugin into tables in the PDF. |
 | Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
 
 **Properties to include** prints a note's front matter properties (Obsidian's

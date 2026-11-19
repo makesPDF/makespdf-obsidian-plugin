@@ -23,6 +23,14 @@ import {
 import { buildCanvasExport } from "./canvas";
 import { DEFAULT_API_URL, normalizeApiKey, normalizeApiSettings } from "./api-key";
 import { API_KEY_DESC, drawApiKeySetting } from "./api-key-setting";
+import { drawFencedAdapterSetting } from "./fenced-adapter-setting";
+import {
+  BUNDLED_ADAPTERS,
+  applyFencedAdapters,
+  defaultFencedAdapterSettings,
+  normalizeFencedAdapterSettings,
+  type FencedAdapterSettings,
+} from "./fenced-adapters";
 import {
   buildProblemContext,
   sendFeedback,
@@ -74,6 +82,8 @@ interface MakesPdfSettings {
   pageNumberPosition: PageNumberPosition;
   outputFolder: string;
   includeProperties: string;
+  /** On/off switch per bundled fenced-block adapter, keyed by adapter id. */
+  fencedAdapters: FencedAdapterSettings;
 }
 
 const DEFAULT_SETTINGS: MakesPdfSettings = {
@@ -87,6 +97,7 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   pageNumberPosition: "right",
   outputFolder: "",
   includeProperties: "",
+  fencedAdapters: defaultFencedAdapterSettings(),
 };
 
 /** Setting copy and options, shared by both settings renderers below. */
@@ -194,6 +205,11 @@ export default class MakesPdfPlugin extends Plugin {
     if (!isPageNumberPosition(this.settings.pageNumberPosition)) {
       this.settings.pageNumberPosition = DEFAULT_SETTINGS.pageNumberPosition;
     }
+
+    // A fresh object, not DEFAULT_SETTINGS's: the toggles write into it.
+    this.settings.fencedAdapters = normalizeFencedAdapterSettings(
+      (stored ?? {}).fencedAdapters,
+    );
   }
 
   async saveSettings() {
@@ -307,10 +323,16 @@ export default class MakesPdfPlugin extends Plugin {
       file.path,
     );
 
-    // 3. Convert Obsidian-specific syntax to GFM
+    // 3. Translate third-party fenced blocks (the bundled adapters: Vtable
+    //    today). After the embed resolver so a block inside an embedded note
+    //    is translated too, and before preprocessObsidian so the translated
+    //    HTML is ordinary markdown from here on.
+    markdown = applyFencedAdapters(markdown, this.settings.fencedAdapters);
+
+    // 4. Convert Obsidian-specific syntax to GFM
     markdown = preprocessObsidian(markdown);
 
-    // 4. Inline local images as data URIs
+    // 5. Inline local images as data URIs
     markdown = await inlineVaultImages(
       markdown,
       this.app.vault,
@@ -398,6 +420,8 @@ export default class MakesPdfPlugin extends Plugin {
               : Promise.reject(new Error("canvas reference is not a vault file")),
         },
         withPropertyTable: (markdown) => this.withPropertyTable(markdown),
+        applyAdapters: (markdown) =>
+          applyFencedAdapters(markdown, this.settings.fencedAdapters),
         createCanvas: () => createEl("canvas"),
       },
     });
@@ -811,6 +835,22 @@ class MakesPdfSettingTab extends PluginSettingTab {
         ],
       },
       {
+        type: "group",
+        heading: "Third-party formats",
+        items: BUNDLED_ADAPTERS.map((adapter) => ({
+          name: adapter.name,
+          desc: adapter.description,
+          aliases: [...adapter.aliases],
+          render: (setting: Setting) =>
+            drawFencedAdapterSetting(
+              setting,
+              adapter,
+              this.plugin.settings.fencedAdapters,
+              () => this.plugin.saveSettings(),
+            ),
+        })),
+      },
+      {
         name: "Send feedback",
         desc: FEEDBACK_DESC,
         aliases: ["report", "problem", "bug", "support"],
@@ -961,6 +1001,17 @@ class MakesPdfSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    new Setting(containerEl).setName("Third-party formats").setHeading();
+
+    for (const adapter of BUNDLED_ADAPTERS) {
+      drawFencedAdapterSetting(
+        new Setting(containerEl),
+        adapter,
+        this.plugin.settings.fencedAdapters,
+        () => this.plugin.saveSettings(),
+      );
+    }
 
     new Setting(containerEl)
       .setName("Send feedback")
