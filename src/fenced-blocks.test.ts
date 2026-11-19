@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   indentLines,
+  mapOutsideFencedBlocks,
   replaceFencedBlocks,
   scanFencedBlocks,
   type FencedBlock,
@@ -125,6 +126,26 @@ describe("replaceFencedBlocks", () => {
     });
     expect(seen).toHaveLength(1);
     expect(out).toBe("```a\nreplaced\n```\n");
+  });
+});
+
+describe("mapOutsideFencedBlocks", () => {
+  it("transforms only the text outside a fence", () => {
+    const md = "a\n```js\nb\n```\nc\n";
+    expect(mapOutsideFencedBlocks(md, (text) => text.toUpperCase())).toBe(
+      "A\n```js\nb\n```\nC\n",
+    );
+  });
+
+  it("transforms the whole document when there is no fence", () => {
+    expect(mapOutsideFencedBlocks("a\nb\n", (text) => text.toUpperCase())).toBe("A\nB\n");
+  });
+
+  it("leaves an unclosed fence and everything after it alone", () => {
+    const md = "before\n```js\nafter\n";
+    expect(mapOutsideFencedBlocks(md, (text) => text.toUpperCase())).toBe(
+      "BEFORE\n```js\nafter\n",
+    );
   });
 });
 

@@ -6,12 +6,18 @@ import { describe, it, expect } from "vitest";
 
 import {
   BUNDLED_ADAPTERS,
+  BUNDLED_MARKDOWN_ADAPTERS,
   applyFencedAdapters,
+  applyMarkdownAdapters,
   defaultFencedAdapterSettings,
+  defaultMarkdownAdapterSettings,
   isAdapterEnabled,
+  isMarkdownAdapterEnabled,
   normalizeFencedAdapterSettings,
+  normalizeMarkdownAdapterSettings,
 } from "./fenced-adapters";
 import { preprocessObsidian } from "./preprocess";
+import { STRUCTURAL_TABLES_PLUGIN_ID } from "./structural-tables";
 
 const SAMPLE = '{"rows":[[{"t":"Example merged cell 1","rs":1,"cs":2,"a":"c"},{"t":"","rs":0,"cs":0}]]}';
 
@@ -173,5 +179,119 @@ describe("isAdapterEnabled", () => {
     expect(isAdapterEnabled({}, "vtable")).toBe(true);
     expect(isAdapterEnabled({ vtable: true }, "vtable")).toBe(true);
     expect(isAdapterEnabled({ vtable: false }, "vtable")).toBe(false);
+  });
+
+  it("takes the adapter kind's default when nothing is stored", () => {
+    expect(isAdapterEnabled(undefined, "structural-tables", false)).toBe(false);
+    expect(isAdapterEnabled({}, "structural-tables", false)).toBe(false);
+    expect(isAdapterEnabled({ "structural-tables": true }, "structural-tables", false)).toBe(
+      true,
+    );
+  });
+});
+
+describe("BUNDLED_MARKDOWN_ADAPTERS", () => {
+  it("contains the Structural Tables adapter, off by default", () => {
+    const adapter = BUNDLED_MARKDOWN_ADAPTERS.find(
+      (candidate) => candidate.id === STRUCTURAL_TABLES_PLUGIN_ID,
+    );
+    expect(adapter?.pluginId).toBe("structural-tables");
+    expect(defaultMarkdownAdapterSettings()).toEqual({ "structural-tables": false });
+  });
+});
+
+describe("normalizeMarkdownAdapterSettings", () => {
+  it("returns every adapter off for a missing or non-object value", () => {
+    expect(normalizeMarkdownAdapterSettings(undefined)).toEqual({ "structural-tables": false });
+    expect(normalizeMarkdownAdapterSettings(null)).toEqual({ "structural-tables": false });
+    expect(normalizeMarkdownAdapterSettings("on")).toEqual({ "structural-tables": false });
+    expect(normalizeMarkdownAdapterSettings([true])).toEqual({ "structural-tables": false });
+  });
+
+  it("keeps a stored boolean and ignores a stale adapter", () => {
+    expect(normalizeMarkdownAdapterSettings({ "structural-tables": true })).toEqual({
+      "structural-tables": true,
+    });
+    expect(normalizeMarkdownAdapterSettings({ removed: true })).toEqual({
+      "structural-tables": false,
+    });
+    expect(normalizeMarkdownAdapterSettings({ "structural-tables": "yes" })).toEqual({
+      "structural-tables": false,
+    });
+  });
+});
+
+describe("isMarkdownAdapterEnabled", () => {
+  const adapter = BUNDLED_MARKDOWN_ADAPTERS[0];
+
+  it("is off unless the saved value is true", () => {
+    expect(isMarkdownAdapterEnabled(undefined, adapter)).toBe(false);
+    expect(isMarkdownAdapterEnabled({}, adapter)).toBe(false);
+    expect(isMarkdownAdapterEnabled({ "structural-tables": true }, adapter)).toBe(true);
+    expect(isMarkdownAdapterEnabled({ "structural-tables": false }, adapter)).toBe(false);
+  });
+});
+
+describe("applyMarkdownAdapters", () => {
+  const table = ["| A | < |", "| --- | --- |", "| one | two |"].join("\n") + "\n";
+  const disabled = () => false;
+
+  it("stays off when the setting is off and the plugin is not enabled", () => {
+    expect(applyMarkdownAdapters(table, { "structural-tables": false }, disabled)).toBe(table);
+    expect(applyMarkdownAdapters(table, {}, disabled)).toBe(table);
+    expect(applyMarkdownAdapters(table, undefined, disabled)).toBe(table);
+  });
+
+  it("runs when the setting is on", () => {
+    const out = applyMarkdownAdapters(table, { "structural-tables": true }, disabled);
+    expect(out).toContain("<table>");
+    expect(out).toContain('<th colspan="2">A</th>');
+  });
+
+  it("runs when the third-party plugin is enabled, even with the setting off", () => {
+    const out = applyMarkdownAdapters(
+      table,
+      { "structural-tables": false },
+      (pluginId) => pluginId === "structural-tables",
+    );
+    expect(out).toContain("<table>");
+  });
+
+  it("leaves a fence alone while translating the table outside it", () => {
+    const md = `\`\`\`md\n${table}\`\`\`\n\n${table}`;
+    const out = applyMarkdownAdapters(md, { "structural-tables": true }, disabled);
+    expect(out).toContain("```md\n| A | < |\n| --- | --- |\n| one | two |\n```\n");
+    expect(out).toContain("<table>");
+  });
+
+  it("leaves the document alone when an adapter throws", () => {
+    const throwing = [
+      {
+        id: "boom",
+        pluginId: "boom",
+        name: "Boom",
+        description: "",
+        aliases: [],
+        transform: () => {
+          throw new RangeError("boom");
+        },
+      },
+    ];
+    expect(applyMarkdownAdapters("a\n", { boom: true }, disabled, throwing)).toBe("a\n");
+  });
+
+  it("hands the translated cells to preprocessObsidian as ordinary markdown", () => {
+    const md = [
+      "| H | H2 | H3 |",
+      "| --- | --- | --- |",
+      "| [[Page]] | see #tag | < |",
+    ].join("\n");
+
+    const out = preprocessObsidian(
+      applyMarkdownAdapters(md, { "structural-tables": true }, disabled),
+    );
+
+    expect(out).toContain("<td>Page</td>");
+    expect(out).toContain('<td colspan="2">see `#tag`</td>');
   });
 });
