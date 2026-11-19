@@ -141,7 +141,7 @@ export function normalizeFencedAdapterSettings(stored: unknown): FencedAdapterSe
  * one starts off.
  */
 export function isAdapterEnabled(
-  settings: FencedAdapterSettings | MarkdownAdapterSettings | undefined,
+  settings: Record<string, boolean> | undefined,
   id: string,
   enabledByDefault = true,
 ): boolean {

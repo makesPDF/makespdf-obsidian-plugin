@@ -127,6 +127,22 @@ describe("Structural Tables: header rows", () => {
     );
     expect(out).toContain("<tr><th>Name</th><td>Alice</td><td>Bob</td></tr>");
   });
+
+  it("handles the Structural Tables example: two header rows, `||`, `<` and `^`", () => {
+    const out = convertStructuralTables(
+      [
+        "| Region  | Sales | <   |",
+        "| Quarter | Q1    | Q2  |",
+        "| ---     || ---  | --- |",
+        "| North   | 10    | 12  |",
+        "| ^       | 8     | 11  |",
+      ].join("\n"),
+    );
+    expect(out).toContain('<tr><th>Region</th><th colspan="2">Sales</th></tr>');
+    expect(out).toContain("<tr><th>Quarter</th><th>Q1</th><th>Q2</th></tr>");
+    expect(out).toContain('<tr><th rowspan="2">North</th><td>10</td><td>12</td></tr>');
+    expect(out).toContain("<tr><td>8</td><td>11</td></tr>");
+  });
 });
 
 describe("Structural Tables: alignment", () => {
