@@ -169,7 +169,13 @@ HTML table at export time:
 - merged areas must form a rectangle and cannot cross the column-header /
   data boundary; a table that breaks either rule is sent as an ordinary pipe
   table, and so is a table that uses no marker at all
+- a header row narrower than the delimiter row is one of those breaking
+  cases: the whole table stays a pipe table (a short *body* row is padded
+  with empty cells, as GFM pads it), and so does a table over 5,000 cells
+  (the PDF engine's own table limit)
 - a table inside a fenced code block is left as written
+- a table inside a callout or blockquote is also left as written: the adapter
+  does not strip the `> ` quote prefix, so its markers stay as text
 
 The adapter recognises a table written with a leading and a trailing pipe on
 every row, the form Structural Tables writes (`| A | B |`). A row without the

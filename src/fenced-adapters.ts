@@ -93,7 +93,7 @@ export const BUNDLED_MARKDOWN_ADAPTERS: readonly MarkdownAdapter[] = [
     pluginId: STRUCTURAL_TABLES_PLUGIN_ID,
     name: "Structural Tables pipe tables",
     description:
-      "Convert Structural Tables pipe tables - merged cells, multi-row headers and row headers - into tables in the PDF. Turns on automatically while the Structural Tables plugin is enabled.",
+      "Also translate Structural Tables pipe tables - merged cells, multi-row headers and row headers - when the Structural Tables plugin is not enabled. Turns on automatically while that plugin is enabled.",
     aliases: [
       "structural tables",
       "table",

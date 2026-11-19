@@ -162,12 +162,23 @@ function formatValue(value: unknown, seen: WeakSet<object>): string | null {
  * Make a string safe for one GFM table cell: backslashes and pipes escaped,
  * newlines collapsed to spaces. Escaping backslashes first stops a literal
  * `\` in the value from swallowing the pipe escape.
+ *
+ * A value that is exactly a Structural Tables merge marker (`<` or `^`) is
+ * written escaped too. This table is machine-generated markdown inserted
+ * before the whole-document adapters run, so a frontmatter value of `<` would
+ * otherwise be read as a merge marker and vanish from the PDF. GFM prints
+ * `\<` and `\^` as the literal character, so the value still prints.
  */
 export function escapeTableCell(value: string): string {
-  return value
+  const escaped = value
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/[\r\n]+/g, " ");
+  const trimmed = escaped.trim();
+  if (trimmed === "<" || trimmed === "^") {
+    return escaped.replace(trimmed, `\\${trimmed}`);
+  }
+  return escaped;
 }
 
 /** True for a `parseYaml` result that can hold properties. */

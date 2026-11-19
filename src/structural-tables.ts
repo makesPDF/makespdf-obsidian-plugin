@@ -147,11 +147,20 @@ function parseDelimiter(line: string): Delimiter | null {
   };
 }
 
-/** Unescape the two literal marker spellings inside a cell's text. */
+/**
+ * Unescape the two literal marker spellings inside a cell's text.
+ *
+ * `\<` becomes the entity `&lt;` rather than a bare `<`, so the later
+ * {@link escapeStrayAngles} pass cannot mistake it for the start of an inline
+ * HTML tag: `a \<b>x\</b>` must print as the text `a <b>x</b>`, not as live
+ * markup. `&lt;` is what that pass would emit for a lone `<` anyway, so the
+ * rendered output is the same. `\^` and `\|` are not tag-shaped and unescape
+ * to their characters.
+ */
 function unescapeMarker(text: string): string {
   return text
     .replace(/\\\|/g, "|")
-    .replace(/\\</g, "<")
+    .replace(/\\</g, "&lt;")
     .replace(/\\\^/g, "^");
 }
 
@@ -190,8 +199,15 @@ const STRUCTURAL_TAGS = new Set([
 
 /**
  * Escape `<` unless it begins something tag-shaped. Cell content is markdown,
- * so inline HTML (`<b>bold</b>`, an autolink) stays, `a < b` and an escaped
- * `\<` become text, and a literal `</td>` cannot end the cell early.
+ * so inline HTML (`<b>bold</b>`, an autolink) stays, `a < b` becomes text, and
+ * a literal `</td>` cannot end the cell early. An escaped `\<` never reaches
+ * here as `<`: {@link unescapeMarker} turns it into `&lt;` first, because this
+ * pass cannot tell it apart from a real tag by then.
+ *
+ * A copy of `escapeStrayAngles` in vtable.ts, which runs without that
+ * unescape step and so has a different contract; a change to tag handling must
+ * be made in both (vtable.ts is left untouched for MAK-351). The tag list is
+ * duplicated for the same reason.
  */
 function escapeStrayAngles(text: string): string {
   const escapedStructural = text.replace(
@@ -294,17 +310,18 @@ function renderCell(cell: SourceCell, span: Span, tag: "th" | "td", align: Align
  * table at the first non-pipe line, as GFM does.
  */
 function renderTable(block: string[]): string[] | null {
-  const delimiters: number[] = [];
+  // Collect each delimiter row once: the index is needed to split the block
+  // and the parsed object is needed to build the table.
+  const delimiters: { index: number; delimiter: Delimiter }[] = [];
   for (let index = 0; index < block.length; index++) {
-    if (parseDelimiter(block[index]) !== null) delimiters.push(index);
+    const delimiter = parseDelimiter(block[index]);
+    if (delimiter !== null) delimiters.push({ index, delimiter });
   }
   // A pipe block with no delimiter row is not a table. Two delimiter rows
   // would leave no unambiguous header column, so it is left alone too.
   if (delimiters.length !== 1) return null;
 
-  const delimiterIndex = delimiters[0];
-  const delimiter = parseDelimiter(block[delimiterIndex]);
-  if (delimiter === null) return null;
+  const { index: delimiterIndex, delimiter } = delimiters[0];
 
   const headerSource = block.slice(0, delimiterIndex);
   const bodySource = block.slice(delimiterIndex + 1);

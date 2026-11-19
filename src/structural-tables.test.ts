@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 
 import { preprocessObsidian } from "./preprocess";
+import { buildPropertyTable } from "./properties";
 import {
   AHRIMAN_STRUCTURAL_TABLE,
   ROWSPAN_STRUCTURAL_TABLE,
@@ -177,6 +178,18 @@ describe("Structural Tables: escaped markers", () => {
     expect(out).not.toContain("\\^");
   });
 
+  it("prints an escaped `<` that looks like a tag as text, not live HTML", () => {
+    const out = convertStructuralTables(
+      ["| H | H2 | H3 |", "| --- | --- | --- |", "| a \\<b>x\\</b> | y | < |"].join("\n"),
+    );
+    // The escaped `<` is an entity before the tag-escaping pass runs, so it
+    // cannot be reopened as a tag; the real `<` marker still merges column 2.
+    expect(out).toContain('<tr><td>a &lt;b>x&lt;/b></td><td colspan="2">y</td></tr>');
+    expect(out).not.toContain("<b>");
+    expect(out).not.toContain("\\<");
+    expect(out).not.toContain("\\^");
+  });
+
   it("keeps a `\\|` as a literal pipe inside the merged cell", () => {
     const out = convertStructuralTables(
       ["| H | H2 |", "| --- | --- |", "| a \\| b | < |"].join("\n"),
@@ -304,6 +317,49 @@ describe("Structural Tables: fenced code is untouched", () => {
     const out = structuralTablesToMarkdown(md);
     expect(out).toContain("```md\n| A | < |\n| --- | --- |\n```");
     expect(out).toContain('<td colspan="2">A</td>');
+  });
+});
+
+describe("Structural Tables: the engine's cell cap", () => {
+  it("leaves a marker table over 5,000 cells exactly as written", () => {
+    // 2,501 rows x 2 columns = 5,002 cells, over the PDF engine's limit.
+    const md = [
+      "| A | B |",
+      "| --- | --- |",
+      ...Array.from({ length: 2_500 }, () => "| x | < |"),
+    ].join("\n");
+    expect(convertStructuralTables(md)).toBe(md);
+  });
+
+  it("still translates a marker table at exactly 5,000 cells", () => {
+    // 2,500 rows x 2 columns = 5,000 cells, the last accepted size.
+    const md = [
+      "| A | B |",
+      "| --- | --- |",
+      ...Array.from({ length: 2_499 }, () => "| x | < |"),
+    ].join("\n");
+    expect(convertStructuralTables(md)).toContain('<td colspan="2">x</td>');
+  });
+});
+
+describe("Structural Tables: a blockquote or callout table stays a pipe table", () => {
+  it("leaves a `> `-prefixed table as written, as the README states", () => {
+    const lines = ["| A | < |", "| --- | --- |", "| one | two |"].map(
+      (line) => `> ${line}`,
+    );
+    const md = lines.join("\n");
+    expect(convertStructuralTables(md)).toBe(md);
+  });
+});
+
+describe("Structural Tables: the generated properties table", () => {
+  it("does not read a property value of `<` or `^` as a merge marker", () => {
+    const table = buildPropertyTable({ status: "<", owner: "^" }, "*");
+    // The adapter runs after the properties table is inserted, so the markers
+    // are escaped in the generated GFM and the table stays a pipe table.
+    expect(table).toContain("| status | \\< |");
+    expect(table).toContain("| owner | \\^ |");
+    expect(convertStructuralTables(table)).toBe(table);
   });
 });
 

@@ -125,6 +125,14 @@ describe("escapeTableCell", () => {
   it("escapes backslashes first so a literal one cannot swallow the pipe escape", () => {
     expect(escapeTableCell("a\\|b")).toBe("a\\\\\\|b");
   });
+
+  it("escapes a value that is only a Structural Tables merge marker", () => {
+    expect(escapeTableCell("<")).toBe("\\<");
+    expect(escapeTableCell("^")).toBe("\\^");
+    // Ordinary text keeps its `<` and `^`: only a whole-cell marker is one.
+    expect(escapeTableCell("a < b")).toBe("a < b");
+    expect(escapeTableCell("x^2")).toBe("x^2");
+  });
 });
 
 describe("splitFrontMatter", () => {
@@ -271,6 +279,12 @@ describe("buildPropertyTable", () => {
     expect(table).toContain("| status | open \\| closed |");
     expect(table).toContain("| note | line one line two |");
     expect(table.split("\n").filter((line) => line.startsWith("|")).length).toBe(4);
+  });
+
+  it("escapes a property value that is only a Structural Tables marker", () => {
+    const table = buildPropertyTable({ status: "<", owner: "^" }, "*");
+    expect(table).toContain("| status | \\< |");
+    expect(table).toContain("| owner | \\^ |");
   });
 });
 
