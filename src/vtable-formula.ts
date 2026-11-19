@@ -393,8 +393,18 @@ export function evaluateFormula(source: string, read: CellReader): number | null
   return value;
 }
 
-/** Render a computed value: an integer plainly, a fraction without float noise. */
+/** Decimal places a computed value is shown with, as a spreadsheet would. */
+export const FORMULA_DECIMALS = 2;
+
+/**
+ * Render a computed value: an integer plainly (exact, however large), a
+ * fraction rounded to FORMULA_DECIMALS places with trailing zeros stripped and
+ * float noise (0.1 + 0.2) gone. Never "-0".
+ */
 export function formatFormulaValue(value: number): string {
-  const rounded = Math.round(value * 1e10) / 1e10;
+  if (Number.isInteger(value)) return String(value === 0 ? 0 : value);
+  const factor = 10 ** FORMULA_DECIMALS;
+  const rounded = Math.round((value + Math.sign(value) * Number.EPSILON) * factor) / factor;
+  if (rounded === 0) return "0";
   return String(rounded);
 }

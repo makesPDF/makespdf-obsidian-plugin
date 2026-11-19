@@ -149,5 +149,13 @@ describe("formatFormulaValue", () => {
     expect(formatFormulaValue(2.5)).toBe("2.5");
     expect(formatFormulaValue(0.1 + 0.2)).toBe("0.3");
     expect(formatFormulaValue(-4)).toBe("-4");
+    expect(formatFormulaValue(228.66666666666666)).toBe("228.67");
+    expect(formatFormulaValue(1.005)).toBe("1.01");
+    expect(formatFormulaValue(2.50001)).toBe("2.5");
+    expect(formatFormulaValue(400.001)).toBe("400");
+    expect(formatFormulaValue(-0.001)).toBe("0");
+    expect(formatFormulaValue(-0)).toBe("0");
+    expect(formatFormulaValue(-2.456)).toBe("-2.46");
+    expect(formatFormulaValue(9007199254740991)).toBe("9007199254740991");
   });
 });

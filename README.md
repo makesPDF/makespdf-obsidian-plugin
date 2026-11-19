@@ -131,7 +131,8 @@ reading view does:
 - Vtable's line styles map to our borders: `noline` and `off` print without
   cell borders, while `three` and `hline` use the default table borders
 - formulas are calculated by the plugin and printed as values: arithmetic,
-  references and ranges, `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT` and `ABS`
+  references and ranges, `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT` and `ABS`; results show at most two decimal places, trailing
+  zeros dropped (an average of 228.6667 prints as 228.67)
 - charts, diagonal split cells and `$math$` are printed as text, with a note
   under the table, because the PDF has no equivalent
 - `colWidths` is a hint at most and is not used: columns size to their content
