@@ -239,6 +239,20 @@ describe("vtableToMarkdown: formulas", () => {
     expect(html).not.toContain("SUM");
   });
 
+  it("rounds a fractional result to two decimal places", () => {
+    const html = vtableToMarkdown(
+      table([
+        [{ t: "Item" }, { t: "Amount" }],
+        [{ t: "A" }, { t: "400" }],
+        [{ t: "B" }, { t: "190" }],
+        [{ t: "C" }, { t: "96" }],
+        [{ t: "Average" }, { f: "=AVERAGE(B2:B4)" }],
+      ]),
+    );
+    expect(html).toContain("<td>228.67</td>");
+    expect(html).not.toContain("228.6666");
+  });
+
   it("computes arithmetic and references", () => {
     const html = vtableToMarkdown(
       table([
