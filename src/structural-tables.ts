@@ -338,6 +338,23 @@ function renderTable(block: string[]): string[] | null {
   const spans = buildSpans(rows, headerRows.length);
   if (spans === null) return null;
 
+  // A row every cell of which a span above covers draws no cell of its own,
+  // so it is not emitted as an empty `<tr>` (the vtable adapter's rule). A
+  // span that crossed such a row must not count it: HTML counts the rows it
+  // is given, and the covered row is not one of them.
+  const emitted = rows.map((row) => row.some((cell) => cell.kind === "anchor"));
+  for (let row = 0; row < rows.length; row++) {
+    for (let column = 0; column < delimiter.columns; column++) {
+      const span = spans[row][column];
+      if (span === null || span.rowspan === 1) continue;
+      let rowspan = span.rowspan;
+      for (let down = 1; down < span.rowspan; down++) {
+        if (!emitted[row + down]) rowspan--;
+      }
+      span.rowspan = rowspan;
+    }
+  }
+
   const renderRow = (rowIndex: number, header: boolean): string => {
     const cells: string[] = [];
     for (let column = 0; column < delimiter.columns; column++) {

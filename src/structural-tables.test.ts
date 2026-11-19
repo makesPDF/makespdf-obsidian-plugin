@@ -64,13 +64,24 @@ describe("Structural Tables: row spans", () => {
 
   it("merges a whole rectangle when `<` and `^` are combined", () => {
     const out = convertStructuralTables(
-      ["| --- | --- |", "| A | < |", "| ^ | ^ |", "| C | D |"].join("\n"),
+      ["| --- | --- | --- |", "| A | < | B |", "| ^ | ^ | C |", "| D | E | F |"].join("\n"),
     );
     expect(out).toContain('<td colspan="2" rowspan="2">A</td>');
-    expect(out).toContain("<tr><td>C</td><td>D</td></tr>");
-    // The row the span covers draws nothing, so it is not emitted as an
-    // empty `<tr>` (the vtable adapter's rule).
+    expect(out).toContain("<tr><td>D</td><td>E</td><td>F</td></tr>");
+    // The row the span covers still has a cell of its own (C), so it is a row.
+    expect(out).toContain("<tr><td>C</td></tr>");
+  });
+
+  it("does not over-reach when a span covers a whole row", () => {
+    const out = convertStructuralTables(
+      ["| --- | --- |", "| A | < |", "| ^ | ^ |", "| C | D |"].join("\n"),
+    );
+    // The covered row is not emitted, so the span counts only the rows that
+    // are: the anchor cell no longer spans at all.
+    expect(out).toContain('<td colspan="2">A</td>');
+    expect(out).not.toContain("rowspan");
     expect(out).not.toContain("<tr></tr>");
+    expect(out).toContain("<tr><td>C</td><td>D</td></tr>");
   });
 });
 
