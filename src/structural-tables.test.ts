@@ -49,6 +49,13 @@ describe("Structural Tables: the Ahriman fixture", () => {
     expect(out.startsWith("before\n\n<table>")).toBe(true);
     expect(out.endsWith("</table>\n\nafter\n")).toBe(true);
   });
+
+  it("passes through preprocessObsidian without being rewritten", () => {
+    // The adapter runs before the Obsidian-to-GFM pass; the generated HTML
+    // must be ordinary markdown to it and come out byte for byte.
+    const out = convertStructuralTables(`${AHRIMAN_STRUCTURAL_TABLE}\n`);
+    expect(preprocessObsidian(out)).toBe(out);
+  });
 });
 
 describe("Structural Tables: row spans", () => {
