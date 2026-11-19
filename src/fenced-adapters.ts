@@ -47,7 +47,7 @@ export interface FencedAdapter {
   toMarkdown(source: string): string | null;
 }
 
-/** Every adapter bundled with the plugin, in settings order. */
+/** Every fenced-block adapter bundled with the plugin, in settings order. */
 export const BUNDLED_ADAPTERS: readonly FencedAdapter[] = [
   {
     id: "vtable",
