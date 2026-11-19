@@ -238,6 +238,25 @@ describe("Structural Tables: fenced code is untouched", () => {
     expect(structuralTablesToMarkdown(md)).toBe(md);
   });
 
+  it("does not translate a pipe table in the front matter", () => {
+    const md = [
+      "---",
+      "title: Example",
+      "table: |",
+      "  | A | < |",
+      "  | --- | --- |",
+      "---",
+      "",
+      "| --- | --- |",
+      "| A | < |",
+    ].join("\n");
+    const out = structuralTablesToMarkdown(md);
+    expect(out.startsWith("---\ntitle: Example\ntable: |\n  | A | < |\n  | --- | --- |\n---\n")).toBe(
+      true,
+    );
+    expect(out).toContain('<td colspan="2">A</td>');
+  });
+
   it("translates the table outside the fence but not the one inside", () => {
     const md = [
       "```md",

@@ -257,8 +257,8 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 
 - The board's JSON is sent as-is, apart from each card's text, which is
   preprocessed like a note's — wikilinks, callouts, highlights,
-  `![[image]]` embeds and `vtable` blocks inside cards work as they do in
-  notes.
+  `![[image]]` embeds, `vtable` blocks and Structural Tables pipe tables
+  inside cards work as they do in notes.
 - Images referenced by the board (file nodes and group backgrounds) are read
   from your vault and inlined. Images over 2400 pixels on their long edge are
   downscaled before sending.

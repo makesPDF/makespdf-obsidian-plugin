@@ -107,8 +107,9 @@ export interface CanvasExportDeps {
   /** The "Properties to include" table, as the note export applies it. */
   withPropertyTable: (markdown: string) => string;
   /**
-   * Bundled fenced-block adapters (Vtable today), as the note export applies
-   * them. Optional so a caller that has none leaves the blocks as code.
+   * Bundled format adapters (Vtable blocks, Structural Tables pipe tables),
+   * as the note export applies them. Optional so a caller that has none
+   * leaves the blocks as code.
    */
   applyAdapters?: (markdown: string) => string;
   /** Canvas factory for image downscaling (Obsidian's `createEl` in main.ts). */

@@ -41,6 +41,7 @@
  */
 
 import { mapOutsideFencedBlocks } from "./fenced-blocks";
+import { splitFrontMatter } from "./properties";
 
 /** The Obsidian community-plugin id, and this adapter's settings key. */
 export const STRUCTURAL_TABLES_PLUGIN_ID = "structural-tables";
@@ -417,8 +418,15 @@ export function convertStructuralTables(text: string): string {
 /**
  * The adapter's whole-document transform. Fenced code is left byte for byte:
  * a pipe table shown as an example inside a fence is code, and a marker in
- * it is text the user chose to display.
+ * it is text the user chose to display. The YAML front matter is skipped too:
+ * the server reads the note's properties from it, and a pipe table in a block
+ * scalar there must not become HTML.
  */
 export function structuralTablesToMarkdown(markdown: string): string {
-  return mapOutsideFencedBlocks(markdown, convertStructuralTables);
+  const { exists, contentStart } = splitFrontMatter(markdown);
+  if (!exists) return mapOutsideFencedBlocks(markdown, convertStructuralTables);
+  return (
+    markdown.slice(0, contentStart) +
+    mapOutsideFencedBlocks(markdown.slice(contentStart), convertStructuralTables)
+  );
 }
