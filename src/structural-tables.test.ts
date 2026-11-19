@@ -286,4 +286,10 @@ describe("Structural Tables: separation from surrounding text", () => {
     const out = convertStructuralTables(`${AHRIMAN_STRUCTURAL_TABLE}\nThanks for reading.`);
     expect(out).toContain("</table>\n\nThanks for reading.");
   });
+
+  it("keeps the indentation of a table inside a list item", () => {
+    const md = ["- item", "", "  | A | < |", "  | --- | --- |", "  | 1 | 2 |"].join("\n");
+    const out = structuralTablesToMarkdown(md);
+    expect(out).toContain('  <table>\n  <thead>\n  <tr><th colspan="2">A</th></tr>');
+  });
 });

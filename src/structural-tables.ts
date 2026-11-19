@@ -27,7 +27,9 @@
  * in anybody else's table, so an ordinary GFM table stays untouched even
  * while the adapter is active. Activation itself is decided by the caller
  * (the Structural Tables plugin being enabled, or the adapter's setting), not
- * here.
+ * here. A row must have a leading and a trailing pipe, the form Structural
+ * Tables writes; a table without a delimiter row, or with two, is not
+ * translated.
  *
  * Cell content stays markdown. The adapter runs before `preprocessObsidian`,
  * so `[[wikilinks]]`, `![[image]]` embeds, highlights and tags inside the
@@ -392,11 +394,14 @@ export function convertStructuralTables(text: string): string {
     let end = index;
     while (end < lines.length && isPipeRow(lines[end])) end++;
 
+    // A table indented inside a list item keeps its indentation on the HTML,
+    // so the translated table stays in that item.
+    const indent = /^ */.exec(lines[index])?.[0] ?? "";
     const rendered = renderTable(lines.slice(index, end));
     if (rendered === null) {
       output.push(...lines.slice(index, end));
     } else {
-      output.push(...rendered);
+      output.push(...rendered.map((line) => (line === "" ? line : indent + line)));
       // A blank line ends the HTML block, so the line after the table cannot
       // join it (the same rule the vtable adapter follows). It also keeps a
       // following paragraph from being read as part of the table. The source
