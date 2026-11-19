@@ -106,6 +106,7 @@ export:
 | `> [!tip]`, `> [!danger]` and other callouts | the closest GFM alert, with its icon; a custom title stays in the header |
 | trailing `^block-id` | removed |
 | a `vtable` fenced block (Vtable plugin) | an HTML table with merged cells, when **Vtable tables** is on |
+| a Structural Tables pipe table (`<`, `^`, `\|\|`) | an HTML table with merged cells, when **Structural Tables pipe tables** is on or the Structural Tables plugin is enabled |
 
 Obsidian's inline syntax inside a fenced code block is left as written: a
 `#tag`, `[[wikilink]]`, `==highlight==` or `%%comment%%` in a code block is
@@ -113,7 +114,8 @@ not converted, so it shows as code. This covers a fence at the start of a line
 or indented up to three spaces; a fence inside a blockquote or callout, or
 indented four or more spaces inside a list item, is not recognised as a code
 block by the exporter, so its contents are converted like ordinary text (the
-same limitation applies to Vtable detection, described below). Note embeds
+same limitation applies to Vtable and Structural Tables detection, described
+below). Note embeds
 (`![[note]]`) are still resolved inside a block, as they always have been;
 image embeds (`![[photo.png]]`) are not, and now print as written.
 
@@ -147,6 +149,43 @@ inside a blockquote or callout, or one indented four or more spaces inside a
 list, is not recognised as a Vtable table and stays a code block too. Nothing
 is loaded from the Vtable plugin at runtime: the adapter is bundled with this
 plugin and works without Vtable installed.
+
+### Structural Tables
+
+[Structural Tables](https://github.com/ZHYX91/obsidian-structural-tables)
+extends ordinary pipe tables with merged cells, multi-row headers, row
+headers and headerless tables. The plugin translates such a table into an
+HTML table at export time:
+
+- `<` in a cell merges it with the source column to its left (`colspan`), and
+  `^` merges it upward into the cell above (`rowspan`)
+- the rows above the delimiter row (`| --- | --- |`) are column headers, and
+  there can be several; a table that starts with the delimiter row has no
+  column header
+- `||` in the delimiter row adds no column and marks the columns before it as
+  row headers
+- `:---`, `:---:` and `---:` set the column alignment on every cell
+- `\<` and `\^` print literally, and `\|` is a literal pipe
+- merged areas must form a rectangle and cannot cross the column-header /
+  data boundary; a table that breaks either rule is sent as an ordinary pipe
+  table, and so is a table that uses no marker at all
+- a header row narrower than the delimiter row is one of those breaking
+  cases: the whole table stays a pipe table (a short *body* row is padded
+  with empty cells, as GFM pads it), and so does a table over 5,000 cells
+  (the PDF engine's own table limit)
+- a table inside a fenced code block is left as written
+- a table inside a callout or blockquote is also left as written: the adapter
+  does not strip the `> ` quote prefix, so its markers stay as text
+
+The adapter recognises a table written with a leading and a trailing pipe on
+every row, the form Structural Tables writes (`| A | B |`). A row without the
+outer pipes is left to the ordinary pipe-table support.
+
+The adapter turns on by itself while the Structural Tables plugin is enabled,
+because that is when Obsidian's reading view draws the markers. Turn
+**Structural Tables pipe tables** on in the settings to translate the syntax
+without the plugin installed. It is off by default: `<` is ordinary text in
+anybody else's table, so an export must not read it as a merge unasked.
 
 Code blocks are syntax highlighted, tables keep their alignment, and footnotes,
 task lists, and Mermaid diagrams render natively. Emoji render in colour, and
@@ -224,8 +263,8 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 
 - The board's JSON is sent as-is, apart from each card's text, which is
   preprocessed like a note's — wikilinks, callouts, highlights,
-  `![[image]]` embeds and `vtable` blocks inside cards work as they do in
-  notes.
+  `![[image]]` embeds, `vtable` blocks and Structural Tables pipe tables
+  inside cards work as they do in notes.
 - Images referenced by the board (file nodes and group backgrounds) are read
   from your vault and inlined. Images over 2400 pixels on their long edge are
   downscaled before sending.
@@ -265,6 +304,7 @@ over-long card continued on page 2 ([PDF](docs/example-canvas-export.pdf)).*
 | Output folder | empty | A folder **inside your vault**. Empty saves the PDF alongside the note. |
 | Properties to include | empty | Comma-separated property names to print as a table at the top of the PDF, for example `status, owner, due`. Empty prints none; `*` prints every property. |
 | Vtable tables | On | Translate `vtable` fenced blocks from the Vtable plugin into tables in the PDF. |
+| Structural Tables pipe tables | Off | Translate Structural Tables pipe tables (`<`, `^`, `\|\|`) into tables in the PDF. Turns on automatically while the Structural Tables plugin is enabled. |
 | Send feedback | - | Opens the feedback form. See [Network use and privacy](#network-use-and-privacy) for what it sends. |
 
 **Properties to include** prints a note's front matter properties (Obsidian's

@@ -23,14 +23,20 @@ import {
 import { buildCanvasExport } from "./canvas";
 import { DEFAULT_API_URL, normalizeApiKey, normalizeApiSettings } from "./api-key";
 import { API_KEY_DESC, drawApiKeySetting } from "./api-key-setting";
-import { drawFencedAdapterSetting } from "./fenced-adapter-setting";
+import { drawAdapterSetting } from "./adapter-setting";
 import {
   BUNDLED_ADAPTERS,
+  BUNDLED_MARKDOWN_ADAPTERS,
   applyFencedAdapters,
+  applyMarkdownAdapters,
   defaultFencedAdapterSettings,
+  defaultMarkdownAdapterSettings,
   normalizeFencedAdapterSettings,
+  normalizeMarkdownAdapterSettings,
   type FencedAdapterSettings,
+  type MarkdownAdapterSettings,
 } from "./fenced-adapters";
+import { isEnabledPlugin, type PluginRegistryApp } from "./enabled-plugins";
 import {
   buildProblemContext,
   sendFeedback,
@@ -84,6 +90,8 @@ interface MakesPdfSettings {
   includeProperties: string;
   /** On/off switch per bundled fenced-block adapter, keyed by adapter id. */
   fencedAdapters: FencedAdapterSettings;
+  /** On/off switch per whole-document adapter, keyed by adapter id. */
+  markdownAdapters: MarkdownAdapterSettings;
 }
 
 const DEFAULT_SETTINGS: MakesPdfSettings = {
@@ -98,6 +106,7 @@ const DEFAULT_SETTINGS: MakesPdfSettings = {
   outputFolder: "",
   includeProperties: "",
   fencedAdapters: defaultFencedAdapterSettings(),
+  markdownAdapters: defaultMarkdownAdapterSettings(),
 };
 
 /** Setting copy and options, shared by both settings renderers below. */
@@ -210,6 +219,9 @@ export default class MakesPdfPlugin extends Plugin {
     this.settings.fencedAdapters = normalizeFencedAdapterSettings(
       (stored ?? {}).fencedAdapters,
     );
+    this.settings.markdownAdapters = normalizeMarkdownAdapterSettings(
+      (stored ?? {}).markdownAdapters,
+    );
   }
 
   async saveSettings() {
@@ -295,6 +307,25 @@ export default class MakesPdfPlugin extends Plugin {
     return table ? insertPropertyTable(markdown, info.contentStart, table) : markdown;
   }
 
+  /**
+   * Translate the third-party formats the active adapters understand.
+   *
+   * Fenced adapters run first, then the whole-document ones (a pipe-table
+   * format). Both run before `preprocessObsidian`, so translated cell text is
+   * ordinary markdown from here on and wikilinks and embeds inside it still
+   * resolve. A whole-document adapter turns on when its own setting is on or
+   * when the Obsidian plugin that owns the format is enabled, so a note reads
+   * the same in Obsidian and in the PDF.
+   */
+  private applyAdapters(markdown: string): string {
+    return applyMarkdownAdapters(
+      applyFencedAdapters(markdown, this.settings.fencedAdapters),
+      this.settings.markdownAdapters,
+      (pluginId) =>
+        isEnabledPlugin(this.app as unknown as PluginRegistryApp, pluginId),
+    );
+  }
+
   async exportToPdf(file: TFile) {
     if (file.extension !== "md") {
       new Notice("Active file is not a Markdown document");
@@ -323,11 +354,12 @@ export default class MakesPdfPlugin extends Plugin {
       file.path,
     );
 
-    // 3. Translate third-party fenced blocks (the bundled adapters: Vtable
-    //    today). After the embed resolver so a block inside an embedded note
-    //    is translated too, and before preprocessObsidian so the translated
-    //    HTML is ordinary markdown from here on.
-    markdown = applyFencedAdapters(markdown, this.settings.fencedAdapters);
+    // 3. Translate third-party formats (the bundled adapters: Vtable blocks,
+    //    and Structural Tables pipe tables). After the embed resolver so a
+    //    format inside an embedded note is translated too, and before
+    //    preprocessObsidian so the translated HTML is ordinary markdown from
+    //    here on.
+    markdown = this.applyAdapters(markdown);
 
     // 4. Convert Obsidian-specific syntax to GFM
     markdown = preprocessObsidian(markdown);
@@ -420,8 +452,7 @@ export default class MakesPdfPlugin extends Plugin {
               : Promise.reject(new Error("canvas reference is not a vault file")),
         },
         withPropertyTable: (markdown) => this.withPropertyTable(markdown),
-        applyAdapters: (markdown) =>
-          applyFencedAdapters(markdown, this.settings.fencedAdapters),
+        applyAdapters: (markdown) => this.applyAdapters(markdown),
         createCanvas: () => createEl("canvas"),
       },
     });
@@ -837,18 +868,33 @@ class MakesPdfSettingTab extends PluginSettingTab {
       {
         type: "group",
         heading: "Third-party formats",
-        items: BUNDLED_ADAPTERS.map((adapter) => ({
-          name: adapter.name,
-          desc: adapter.description,
-          aliases: [...adapter.aliases],
-          render: (setting: Setting) =>
-            drawFencedAdapterSetting(
-              setting,
-              adapter,
-              this.plugin.settings.fencedAdapters,
-              () => this.plugin.saveSettings(),
-            ),
-        })),
+        items: [
+          ...BUNDLED_ADAPTERS.map((adapter) => ({
+            name: adapter.name,
+            desc: adapter.description,
+            aliases: [...adapter.aliases],
+            render: (setting: Setting) =>
+              drawAdapterSetting(
+                setting,
+                adapter,
+                this.plugin.settings.fencedAdapters,
+                () => this.plugin.saveSettings(),
+              ),
+          })),
+          ...BUNDLED_MARKDOWN_ADAPTERS.map((adapter) => ({
+            name: adapter.name,
+            desc: adapter.description,
+            aliases: [...adapter.aliases],
+            render: (setting: Setting) =>
+              drawAdapterSetting(
+                setting,
+                adapter,
+                this.plugin.settings.markdownAdapters,
+                () => this.plugin.saveSettings(),
+                false,
+              ),
+          })),
+        ],
       },
       {
         name: "Send feedback",
@@ -1005,11 +1051,21 @@ class MakesPdfSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Third-party formats").setHeading();
 
     for (const adapter of BUNDLED_ADAPTERS) {
-      drawFencedAdapterSetting(
+      drawAdapterSetting(
         new Setting(containerEl),
         adapter,
         this.plugin.settings.fencedAdapters,
         () => this.plugin.saveSettings(),
+      );
+    }
+
+    for (const adapter of BUNDLED_MARKDOWN_ADAPTERS) {
+      drawAdapterSetting(
+        new Setting(containerEl),
+        adapter,
+        this.plugin.settings.markdownAdapters,
+        () => this.plugin.saveSettings(),
+        false,
       );
     }
 

@@ -157,6 +157,29 @@ export function replaceFencedBlocks(
 }
 
 /**
+ * Rewrite the text outside every fenced code block through `transform`,
+ * leaving each block byte for byte. This is the masking rule for an adapter
+ * that reads the note's own markdown (a pipe table, not a fenced block): a
+ * table shown inside a fence is code and must not be translated.
+ */
+export function mapOutsideFencedBlocks(
+  markdown: string,
+  transform: (text: string) => string,
+): string {
+  const blocks = scanFencedBlocks(markdown);
+  if (blocks.length === 0) return transform(markdown);
+
+  let out = "";
+  let cursor = 0;
+  for (const block of blocks) {
+    if (block.from > cursor) out += transform(markdown.slice(cursor, block.from));
+    out += markdown.slice(block.from, block.to);
+    cursor = block.to;
+  }
+  return out + transform(markdown.slice(cursor));
+}
+
+/**
  * Prefix every non-empty line of `text` with `indent`, so a block translated
  * inside a list item keeps its nesting.
  */

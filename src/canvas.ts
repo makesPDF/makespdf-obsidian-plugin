@@ -107,8 +107,9 @@ export interface CanvasExportDeps {
   /** The "Properties to include" table, as the note export applies it. */
   withPropertyTable: (markdown: string) => string;
   /**
-   * Bundled fenced-block adapters (Vtable today), as the note export applies
-   * them. Optional so a caller that has none leaves the blocks as code.
+   * Bundled format adapters (fenced Vtable blocks, and Structural Tables pipe
+   * tables), as the note export applies them. Optional so a caller that has
+   * none leaves fenced blocks as code and pipe tables as GFM.
    */
   applyAdapters?: (markdown: string) => string;
   /** Canvas factory for image downscaling (Obsidian's `createEl` in main.ts). */
@@ -197,10 +198,10 @@ function pdfFileNodePaths(canvas: Record<string, unknown>): ReadonlySet<string> 
 }
 
 /**
- * Rewrite every text card through the note pipeline (the bundled fenced-block
- * adapters, then Obsidian syntax to GFM, then local images inlined as data:
- * URIs) so wikilinks and `![[image]]` embeds in cards render like they do in
- * notes.
+ * Rewrite every text card through the note pipeline (the bundled format
+ * adapters for fenced blocks and whole-document pipe tables, then Obsidian
+ * syntax to GFM, then local images inlined as data: URIs) so wikilinks and
+ * `![[image]]` embeds in cards render like they do in notes.
  */
 async function transformTextCards(
   canvas: Record<string, unknown>,
