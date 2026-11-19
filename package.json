@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
-    "generate:example-export": "tsx scripts/generate-example-export.ts"
+    "generate:example-export": "tsx scripts/generate-example-export.ts",
+    "generate:vtable-sample": "tsx scripts/generate-vtable-sample.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
