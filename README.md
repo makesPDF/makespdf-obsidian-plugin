@@ -100,6 +100,7 @@ export:
 | `[[Page]]`, `[[Page\|Alias]]` | plain text (`Page`, `Alias`) |
 | `![[note]]`, `![[note#Heading]]` | the referenced content, inlined (max 3 levels deep) |
 | `![[image.png\|400]]` | a sized image |
+| `![[image.png\|alt text]]` | the image at its natural size, with that alt text (`![[image.png\|alt text\|400]]` for both) |
 | `==highlight==` | `<mark>`, painted as a highlight |
 | `%%comment%%` | removed |
 | `#tag`, `#nested/tag` | inline code |

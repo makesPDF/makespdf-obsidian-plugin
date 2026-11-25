@@ -10,6 +10,8 @@
  * instead of growing a second inliner.
  */
 
+import { unescapeHtmlAttribute, unescapeVerbatimText } from "./escaping";
+
 /** A vault file, as far as this module cares. */
 export interface VaultImageFile {
   path: string;
@@ -34,6 +36,26 @@ export const IMAGE_MIME: Record<string, string> = {
 };
 
 /**
+ * The image extensions an export supports, in ONE place.
+ *
+ * Three passes have to agree on this list or an image silently stops being an
+ * image: `resolveNoteEmbeds` skips exactly these embeds so it does not treat
+ * them as notes, `preprocessObsidian` converts exactly these into markdown or
+ * `<img>`, and the inliner can produce a MIME type for exactly these (see
+ * {@link IMAGE_MIME}). MAK-285 was a divergence between the first two.
+ */
+export const IMAGE_EXTENSIONS: readonly string[] = Object.keys(IMAGE_MIME);
+
+/** `.png`, `.jpg`, … at the end of a linkpath, case-insensitive. */
+export const IMAGE_EXT_PATTERN = new RegExp(
+  String.raw`\.(?:${IMAGE_EXTENSIONS.join("|")})$`,
+  "i",
+);
+
+/** The same extensions as regex source, for a larger pattern's alternation. */
+export const IMAGE_EXT_SOURCE = IMAGE_EXTENSIONS.join("|");
+
+/**
  * A markdown image destination, as regex source with one capture group. In
  * order of preference:
  *
@@ -47,20 +69,31 @@ export const IMAGE_MIME: Record<string, string> = {
  */
 export const MD_IMAGE_DEST = String.raw`(<(?:\\.|[^<>\n\\])*>|[^()\n]*(?:\([^()\n]*\)[^()\n]*)*|[^)\n]+)`;
 
-/** `<a\>b.png>` -> `a>b.png`; a destination with no brackets is returned as written. */
+/**
+ * `<a\>b.png>` -> `a>b.png`; a destination with no brackets is returned as
+ * written.
+ *
+ * An angle-bracket destination is markdown, so every backslash escape in it is
+ * undone — `escapeVerbatimText` writes the vault path that way so the later
+ * raw-string rules of `preprocessObsidian` cannot rewrite it.
+ */
 export function unwrapImageDest(dest: string): string {
   if (!dest.startsWith("<") || !dest.endsWith(">")) return dest;
-  return dest.slice(1, -1).replace(/\\([<>])/g, "$1");
+  return unescapeVerbatimText(dest.slice(1, -1));
 }
 
 /**
  * `![alt](dest)`, with an optional title after an angle-bracket destination.
- * The whitespace before a title is bounded: `\s+` would rescan a long blank
- * run from every position the destination gives back, which is quadratic.
+ * The alt may hold a backslash-escaped `]` (an alt that quotes a bracket is
+ * escaped so it prints verbatim), so its group is an escape-aware loop rather
+ * than `[^\]]*` — the latter would end the alt at the escaped bracket and
+ * leave the image uninlined. The whitespace before a title is bounded: `\s+`
+ * would rescan a long blank run from every position the destination gives
+ * back, which is quadratic.
  */
 function mdImagePattern(): RegExp {
   return new RegExp(
-    String.raw`(!\[[^\]]*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
+    String.raw`(!\[(?:\\.|[^\]\\])*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
     "g",
   );
 }
@@ -88,13 +121,17 @@ export async function inlineVaultImages(
   const htmlImageRe = /<img\s[^>]*src="([^"]+)"/g;
 
   const paths = new Set<string>();
-  for (const [re, group] of [
-    [mdImagePattern(), 2],
-    [htmlImageRe, 1],
+  // Each pattern's destination group, and how to turn what it captured back
+  // into the path it names: a markdown destination is backslash-escaped, an
+  // HTML attribute is written as character references. Both sources have to
+  // agree with what the path really is, or the vault lookup misses.
+  for (const [re, group, unwrap] of [
+    [mdImagePattern(), 2, unwrapImageDest],
+    [htmlImageRe, 1, unescapeHtmlAttribute],
   ] as const) {
     let m;
     while ((m = re.exec(md)) !== null) {
-      const src = unwrapImageDest(m[group] ?? "");
+      const src = unwrap(m[group] ?? "");
       if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
         paths.add(src);
       }
@@ -174,7 +211,11 @@ export async function inlineVaultImages(
     .replace(mdImagePattern(), (_m, pre: string, dest: string, post: string) =>
       `${pre}${swap(dest)}${post}`,
     )
-    .replace(/(<img\s[^>]*src=")([^"]+)(")/g, (_m, pre: string, dest: string, post: string) =>
-      `${pre}${swap(dest)}${post}`,
-    );
+    .replace(/(<img\s[^>]*src=")([^"]+)(")/g, (_m, pre: string, raw: string, post: string) => {
+      // The attribute value is read as HTML: character references are decoded
+      // before the lookup. On a miss the value is left exactly as written, so
+      // an unresolved tag is not re-encoded.
+      const uri = localImages.get(unescapeHtmlAttribute(raw));
+      return `${pre}${uri ?? raw}${post}`;
+    });
 }

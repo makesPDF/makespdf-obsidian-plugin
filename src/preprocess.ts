@@ -5,8 +5,9 @@
  * unit tested directly (see preprocess.test.ts).
  */
 
-import { MD_IMAGE_DEST, unwrapImageDest } from "./images";
+import { IMAGE_EXT_SOURCE, MD_IMAGE_DEST, unwrapImageDest } from "./images";
 import { scanFencedBlocks, type FencedBlock } from "./fenced-blocks";
+import { escapeHtmlAttribute, escapeVerbatimText } from "./escaping";
 
 /**
  * Map of Obsidian callout types to the closest GFM alert type.
@@ -59,8 +60,9 @@ export interface PreprocessOptions {
 /**
  * Converts Obsidian-flavoured markdown to GFM-compatible markdown.
  *
- * Handles: wikilinks, image embeds with resize, highlights, comments,
- * block references, tags, callout titles/types, and image resize syntax.
+ * Handles: wikilinks, image embeds with a size or alt text, highlights,
+ * comments, block references, tags, callout titles/types, and image resize
+ * syntax.
  *
  * The inside of a fenced code block is left exactly as written: a `#tag`,
  * `[[wikilink]]`, `==highlight==` or `%%comment%%` shown in a code block is
@@ -144,6 +146,101 @@ function findCommentSpans(markdown: string, blocks: FencedBlock[]): TextSpan[] {
   return spans;
 }
 
+/**
+ * `![[image.png]]` and `![[image.png|display]]`, for the extensions Obsidian
+ * renders as an image (one list, shared with the resolver and the inliner:
+ * {@link IMAGE_EXT_SOURCE}).
+ *
+ * The display text may hold a single `]`: Obsidian's own embed parser ends the
+ * link at the first `]]`, so `![[a.png|see [1] here]]` is one embed. The alt
+ * group is therefore "a character that is neither a bracket nor a newline, or
+ * a bracket that does not close the link" — an unambiguous alternation, so it
+ * cannot backtrack exponentially on an unterminated embed.
+ *
+ * The pipe may be written `\|`. Inside a GFM table that is the only spelling
+ * of a pipe Obsidian accepts, so the backslash is the table's escape, not part
+ * of the path or the display text, and it is consumed here.
+ */
+const IMAGE_EMBED_RE = new RegExp(
+  String.raw`!\[\[([^\]|]+\.(?:${IMAGE_EXT_SOURCE}))(?:\\?\|((?:[^\]\n]|\](?!\]))*))?\]\]`,
+  "gi",
+);
+
+/** Obsidian's image size: `300` or `300x200`, spaces allowed around the `x`. */
+const IMAGE_SIZE_RE = /^(\d+)\s*(?:x\s*(\d+))?$/;
+
+/** A parsed image embed size; `height` is absent for a width-only size. */
+interface ImageSize {
+  width: string;
+  height?: string;
+}
+
+/** Parse an image size, or `undefined` when the text is alt text. */
+function parseImageSize(text: string): ImageSize | undefined {
+  const match = IMAGE_SIZE_RE.exec(text.trim());
+  if (!match) return undefined;
+  // Obsidian treats a zero height as no height (`NT`: `0 !== r`), so
+  // `|300x0` is width-only rather than an image hidden by height="0".
+  if (match[2] && Number(match[2]) !== 0) return { width: match[1], height: match[2] };
+  return { width: match[1] };
+}
+
+/**
+ * Split an image embed's display text into alt text and size, as Obsidian
+ * does: the text after the LAST `|` is a size when it parses as one, and
+ * everything before it is alt text; with no size, the whole display text is
+ * alt text. So `|alt text` is alt at natural size, `|alt text|300` is both,
+ * and `|300|alt text` is the alt text `300|alt text` — not a size, because
+ * Obsidian only reads a size from a trailing segment.
+ */
+function splitImageDisplay(display: string): { alt: string; size?: ImageSize } {
+  const bar = display.lastIndexOf("|");
+  if (bar !== -1) {
+    const size = parseImageSize(display.slice(bar + 1));
+    if (size) {
+      // Inside a GFM table the separator is written `\|` too, so the alt can
+      // end with the table's escape for it; that backslash is not alt text.
+      return { alt: display.slice(0, bar).replace(/\\$/, ""), size };
+    }
+    return { alt: display };
+  }
+  const size = parseImageSize(display);
+  return size ? { alt: "", size } : { alt: display };
+}
+
+/**
+ * One image embed as GFM markdown or a single `<img>` tag.
+ *
+ * A plain embed stays markdown, so the inliner swaps its destination and the
+ * API renders it inline like any other image. A sized embed must be HTML —
+ * markdown has no width — and so must one that is sized and given alt text.
+ * The alt in the HTML form lands in an attribute, where a backslash is not an
+ * escape, so it uses the character-reference form of the same escape set;
+ * otherwise it goes in a markdown label with the backslash form.
+ *
+ * Both slots are user text, so both are escaped: the label so the alt prints
+ * as written, and the destination so a later raw-string rule
+ * (`%%comment%%`, `==highlight==`, `#tag`, `[[wikilink]]`) cannot rewrite the
+ * path before the inliner looks it up. `unwrapImageDest` reverses the
+ * markdown form and `unescapeHtmlAttribute` the HTML one.
+ *
+ * With no alt, a sized embed keeps the file name as its alt, as it always has.
+ */
+function imageEmbedToMarkdown(path: string, display?: string): string {
+  const { alt, size } = splitImageDisplay((display ?? "").trim());
+
+  if (size) {
+    const height = size.height ? ` height="${size.height}"` : "";
+    return `<img src="${escapeHtmlAttribute(path)}" width="${size.width}"${height} alt="${escapeHtmlAttribute(alt || path)}">`;
+  }
+
+  // Angle brackets: a vault file name can hold spaces and parentheses, which
+  // a bare markdown destination cannot. `<` and `>` end or break that form, so
+  // they are escaped (macOS and Linux allow them in names) — as is everything
+  // else in the verbatim set, for the raw-string rules listed above.
+  return `![${escapeVerbatimText(alt || path)}](<${escapeVerbatimText(path)}>)`;
+}
+
 function obsidianToGfm(md: string, options: PreprocessOptions): string {
   let result = md;
 
@@ -157,21 +254,16 @@ function obsidianToGfm(md: string, options: PreprocessOptions): string {
     result = result.replace(/ \^[\w-]+$/gm, "");
   }
 
-  // 3. Image embeds: ![[file.ext]] and ![[file.ext|300]] (files with image extensions)
-  result = result.replace(
-    /!\[\[([^\]|]+\.(?:png|jpe?g|gif|svg|webp|bmp|avif))(?:\|(\d+(?:x\d+)?))?\]\]/gi,
-    (_match, path: string, size?: string) => {
-      if (size && size.includes("x")) {
-        const [w, h] = size.split("x");
-        return `<img src="${path}" width="${w}" height="${h}" alt="${path}">`;
-      } else if (size) {
-        return `<img src="${path}" width="${size}" alt="${path}">`;
-      }
-      // Angle brackets: a vault file name can hold spaces and parentheses,
-      // which a bare markdown destination cannot. `<` and `>` end or break
-      // that form, so they are escaped (macOS and Linux allow them in names).
-      return `![${path}](<${path.replace(/[<>]/g, "\\$&")}>)`;
-    },
+  // 3. Image embeds: ![[file.ext]], ![[file.ext|300]] and
+  //    ![[file.ext|alt text]] (files with image extensions). The pipe is read
+  //    the way Obsidian reads it (1.13.7: `$E` splits the display text off
+  //    first, then the `iembed` markdown transformer tests it with `NT`/`FT`):
+  //    a trailing `|WIDTH[xHEIGHT]` is a size and everything before it is alt
+  //    text; with no size, the whole display text is alt text. So
+  //    `![[image.png|alt text]]` renders the image at natural size with that
+  //    alt — Obsidian never prints the raw link, and neither may this.
+  result = result.replace(IMAGE_EMBED_RE, (_match, path: string, display?: string) =>
+    imageEmbedToMarkdown(path, display),
   );
 
   // 4. Non-image embeds: ![[note]] and ![[note#heading]]
@@ -195,15 +287,19 @@ function obsidianToGfm(md: string, options: PreprocessOptions): string {
   result = result.replace(/==(.+?)==/g, "<mark>$1</mark>");
 
   // 7. Image resize in standard syntax: ![alt|300](url) -> <img>
+  //    Both the alt and the destination are written into the tag as attribute
+  //    values, so both take the attribute escape: an unescaped `>` in either
+  //    would end the tag early. The inliner decodes the src back to the path.
   result = result.replace(
     new RegExp(String.raw`!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(${MD_IMAGE_DEST}\)`, "g"),
     (_match, alt: string, size: string, dest: string) => {
-      const url = unwrapImageDest(dest);
+      const url = escapeHtmlAttribute(unwrapImageDest(dest));
+      const altAttribute = escapeHtmlAttribute(alt);
       if (size.includes("x")) {
         const [w, h] = size.split("x");
-        return `<img src="${url}" width="${w}" height="${h}" alt="${alt}">`;
+        return `<img src="${url}" width="${w}" height="${h}" alt="${altAttribute}">`;
       }
-      return `<img src="${url}" width="${size}" alt="${alt}">`;
+      return `<img src="${url}" width="${size}" alt="${altAttribute}">`;
     },
   );
 

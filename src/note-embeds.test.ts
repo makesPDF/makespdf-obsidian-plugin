@@ -18,7 +18,8 @@ import {
   type VaultNoteFile,
 } from "./note-embeds";
 import { preprocessObsidian } from "./preprocess";
-import { inlineVaultImages } from "./images";
+import { IMAGE_EXTENSIONS, inlineVaultImages } from "./images";
+import { escapeVerbatimText } from "./escaping";
 
 function makeVault(notes: Record<string, string>) {
   const files = new Map<string, VaultNoteFile>();
@@ -114,10 +115,30 @@ describe("resolveNoteEmbeds", () => {
     expect(await run("![[photo.png|400x200]]")).toBe("![[photo.png|400x200]]");
   });
 
+  it("leaves an image embed with alt text untouched", async () => {
+    // The pipe is not a note alias: the path before it is an image, so this
+    // stays for preprocessObsidian, which turns the pipe into an alt.
+    expect(await run("![[photo.png|alt text]]")).toBe("![[photo.png|alt text]]");
+    expect(await run("![[photo.png|alt text|400]]")).toBe("![[photo.png|alt text|400]]");
+  });
+
   it("leaves every supported image extension untouched", async () => {
-    for (const ext of ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif"]) {
+    for (const ext of IMAGE_EXTENSIONS) {
       const md = `![[photo.${ext}]]`;
       expect(await run(md)).toBe(md);
+    }
+  });
+
+  it("converts every supported image extension through both passes", async () => {
+    // The extension list used to be spelled out twice — once in this
+    // module's image test and once in the preprocessor's embed regex — and a
+    // divergence recreated the raw-wikilink bug. Both read IMAGE_EXTENSIONS
+    // now, and this runs each one through the pair.
+    for (const ext of IMAGE_EXTENSIONS) {
+      const out = preprocessObsidian(await run(String.raw`| ![[photo.${ext}\|alt text]] |`));
+      expect(out).toBe(`| ![alt text](<photo.${ext}>) |`);
+      expect(out).not.toContain("![[");
+      expect(out).not.toContain("*[not found");
     }
   });
 
@@ -159,7 +180,48 @@ describe("resolveNoteEmbeds", () => {
       "the serpent.jpg",
     ]) {
       const out = await runExportPipeline(`![[${name}]]`);
-      expect(out).toBe(`![${name}](data:image/jpeg;base64,iVBORw==)`);
+      // The label carries the verbatim escape; the destination is escaped
+      // too and unwrapped for the vault lookup.
+      expect(out).toBe(`![${escapeVerbatimText(name)}](data:image/jpeg;base64,iVBORw==)`);
+    }
+  });
+
+  it("converts a table-escaped pipe on an image embed", async () => {
+    // Inside a GFM table the only spelling Obsidian accepts is `\|`. The
+    // resolver must still recognise the embed as an image, and the
+    // preprocessor must consume the escape; otherwise the note pipeline
+    // reports a false "not found" and a canvas card prints the raw embed.
+    for (const [md, expected] of [
+      [
+        String.raw`| ![[photo.jpg\|alt text]] |`,
+        "| ![alt text](data:image/jpeg;base64,iVBORw==) |",
+      ],
+      [
+        String.raw`| ![[photo.jpg\|400]] |`,
+        '| <img src="data:image/jpeg;base64,iVBORw==" width="400" alt="photo.jpg"> |',
+      ],
+      [
+        String.raw`| ![[photo.jpg\|alt text\|400]] |`,
+        '| <img src="data:image/jpeg;base64,iVBORw==" width="400" alt="alt text"> |',
+      ],
+    ] as const) {
+      const out = await runExportPipeline(md);
+      expect(out).toBe(expected);
+      expect(out).not.toContain("*[not found");
+      expect(out).not.toContain("![[");
+    }
+  });
+
+  it("inlines a sized embed whose file name needs an attribute escape", async () => {
+    // `>` and `&` are encoded in the tag, then decoded before the lookup.
+    for (const [name, encoded] of [
+      ["a>b c.jpg", "a&gt;b c.jpg"],
+      ["a&b c.jpg", "a&amp;b c.jpg"],
+    ] as const) {
+      const out = await runExportPipeline(`![[${name}|400]]`);
+      expect(out).toBe(
+        `<img src="data:image/jpeg;base64,iVBORw==" width="400" alt="${encoded}">`,
+      );
     }
   });
 
@@ -168,6 +230,25 @@ describe("resolveNoteEmbeds", () => {
     expect(out).toContain('src="data:image/jpeg;base64,');
     expect(out).toContain('width="400"');
     expect(out).not.toContain("See:");
+  });
+
+  it("turns an image embed into an inlined image with its alt text", async () => {
+    // The bug this guards (MAK-285): the resolver skipped it because of the
+    // pipe and preprocess only knew numeric pipes, so the raw `![[...]]`
+    // reached the API and printed as literal text.
+    const out = await runExportPipeline("![[photo.jpg|a photo with markup [1] & more]]");
+    expect(out).toBe(
+      "![a photo with markup \\[1\\] \\& more](data:image/jpeg;base64,iVBORw==)",
+    );
+    expect(out).not.toContain("![[");
+  });
+
+  it("turns a sized image embed with alt text into a sized inlined image", async () => {
+    const out = await runExportPipeline("![[photo.jpg|alt text|400]]");
+    expect(out).toContain('<img src="data:image/jpeg;base64,');
+    expect(out).toContain('width="400"');
+    expect(out).toContain('alt="alt text"');
+    expect(out).not.toContain("![[");
   });
 
   it("inlines an image that follows an inlined note embed", async () => {
