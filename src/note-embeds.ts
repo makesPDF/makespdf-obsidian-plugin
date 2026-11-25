@@ -14,6 +14,7 @@
  * and inlineVaultImages (path -> `data:` URI) to handle.
  */
 
+import { IMAGE_EXT_PATTERN } from "./images";
 import { extractBlock, extractSection, preprocessObsidian } from "./preprocess";
 
 /** Max recursion depth for note embeds to prevent runaway transclusion. */
@@ -21,9 +22,6 @@ export const MAX_EMBED_DEPTH = 3;
 
 /** Max total size (in characters) of all inlined content to prevent payload bloat. */
 export const MAX_EMBED_TOTAL_CHARS = 200_000;
-
-/** Image extension pattern, used to skip image embeds (handled separately). */
-export const IMAGE_EXT_PATTERN = /\.(?:png|jpe?g|gif|svg|webp|bmp|avif)$/i;
 
 /** A vault note, as far as this module cares. */
 export interface VaultNoteFile {
@@ -74,8 +72,12 @@ export async function resolveNoteEmbeds(
     parts.push(Promise.resolve(md.slice(lastIndex, matchStart)));
     lastIndex = matchStart + fullMatch.length;
 
-    // Skip image embeds (already handled)
-    if (IMAGE_EXT_PATTERN.test(ref.split("|")[0])) {
+    // Skip image embeds (already handled). Inside a GFM table the pipe must
+    // be written `\|`, so the segment before the first pipe may carry a
+    // trailing backslash; it is the table's escape, not part of the file
+    // name, and preprocessObsidian consumes it the same way.
+    const imagePath = ref.split("|")[0].replace(/\\$/, "");
+    if (IMAGE_EXT_PATTERN.test(imagePath)) {
       parts.push(Promise.resolve(fullMatch));
       continue;
     }

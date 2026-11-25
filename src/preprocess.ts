@@ -5,7 +5,7 @@
  * unit tested directly (see preprocess.test.ts).
  */
 
-import { MD_IMAGE_DEST, unwrapImageDest } from "./images";
+import { IMAGE_EXT_SOURCE, MD_IMAGE_DEST, unwrapImageDest } from "./images";
 import { scanFencedBlocks, type FencedBlock } from "./fenced-blocks";
 import { escapeHtmlAttribute, escapeVerbatimText } from "./escaping";
 
@@ -148,16 +148,21 @@ function findCommentSpans(markdown: string, blocks: FencedBlock[]): TextSpan[] {
 
 /**
  * `![[image.png]]` and `![[image.png|display]]`, for the extensions Obsidian
- * renders as an image.
+ * renders as an image (one list, shared with the resolver and the inliner:
+ * {@link IMAGE_EXT_SOURCE}).
  *
  * The display text may hold a single `]`: Obsidian's own embed parser ends the
  * link at the first `]]`, so `![[a.png|see [1] here]]` is one embed. The alt
  * group is therefore "a character that is neither a bracket nor a newline, or
  * a bracket that does not close the link" — an unambiguous alternation, so it
  * cannot backtrack exponentially on an unterminated embed.
+ *
+ * The pipe may be written `\|`. Inside a GFM table that is the only spelling
+ * of a pipe Obsidian accepts, so the backslash is the table's escape, not part
+ * of the path or the display text, and it is consumed here.
  */
 const IMAGE_EMBED_RE = new RegExp(
-  String.raw`!\[\[([^\]|]+\.(?:png|jpe?g|gif|svg|webp|bmp|avif))(?:\|((?:[^\]\n]|\](?!\]))*))?\]\]`,
+  String.raw`!\[\[([^\]|]+\.(?:${IMAGE_EXT_SOURCE}))(?:\\?\|((?:[^\]\n]|\](?!\]))*))?\]\]`,
   "gi",
 );
 
@@ -192,7 +197,12 @@ function splitImageDisplay(display: string): { alt: string; size?: ImageSize } {
   const bar = display.lastIndexOf("|");
   if (bar !== -1) {
     const size = parseImageSize(display.slice(bar + 1));
-    return size ? { alt: display.slice(0, bar), size } : { alt: display };
+    if (size) {
+      // Inside a GFM table the separator is written `\|` too, so the alt can
+      // end with the table's escape for it; that backslash is not alt text.
+      return { alt: display.slice(0, bar).replace(/\\$/, ""), size };
+    }
+    return { alt: display };
   }
   const size = parseImageSize(display);
   return size ? { alt: "", size } : { alt: display };
@@ -208,6 +218,12 @@ function splitImageDisplay(display: string): { alt: string; size?: ImageSize } {
  * escape, so it uses the character-reference form of the same escape set;
  * otherwise it goes in a markdown label with the backslash form.
  *
+ * Both slots are user text, so both are escaped: the label so the alt prints
+ * as written, and the destination so a later raw-string rule
+ * (`%%comment%%`, `==highlight==`, `#tag`, `[[wikilink]]`) cannot rewrite the
+ * path before the inliner looks it up. `unwrapImageDest` reverses the
+ * markdown form and `unescapeHtmlAttribute` the HTML one.
+ *
  * With no alt, a sized embed keeps the file name as its alt, as it always has.
  */
 function imageEmbedToMarkdown(path: string, display?: string): string {
@@ -215,15 +231,14 @@ function imageEmbedToMarkdown(path: string, display?: string): string {
 
   if (size) {
     const height = size.height ? ` height="${size.height}"` : "";
-    const altText = alt ? escapeHtmlAttribute(alt) : path;
-    return `<img src="${path}" width="${size.width}"${height} alt="${altText}">`;
+    return `<img src="${escapeHtmlAttribute(path)}" width="${size.width}"${height} alt="${escapeHtmlAttribute(alt || path)}">`;
   }
 
   // Angle brackets: a vault file name can hold spaces and parentheses, which
   // a bare markdown destination cannot. `<` and `>` end or break that form, so
-  // they are escaped (macOS and Linux allow them in names).
-  const dest = path.replace(/[<>]/g, "\\$&");
-  return `![${alt ? escapeVerbatimText(alt) : path}](<${dest}>)`;
+  // they are escaped (macOS and Linux allow them in names) — as is everything
+  // else in the verbatim set, for the raw-string rules listed above.
+  return `![${escapeVerbatimText(alt || path)}](<${escapeVerbatimText(path)}>)`;
 }
 
 function obsidianToGfm(md: string, options: PreprocessOptions): string {
@@ -272,15 +287,19 @@ function obsidianToGfm(md: string, options: PreprocessOptions): string {
   result = result.replace(/==(.+?)==/g, "<mark>$1</mark>");
 
   // 7. Image resize in standard syntax: ![alt|300](url) -> <img>
+  //    Both the alt and the destination are written into the tag as attribute
+  //    values, so both take the attribute escape: an unescaped `>` in either
+  //    would end the tag early. The inliner decodes the src back to the path.
   result = result.replace(
     new RegExp(String.raw`!\[([^|\]]*)\|(\d+(?:x\d+)?)\]\(${MD_IMAGE_DEST}\)`, "g"),
     (_match, alt: string, size: string, dest: string) => {
-      const url = unwrapImageDest(dest);
+      const url = escapeHtmlAttribute(unwrapImageDest(dest));
+      const altAttribute = escapeHtmlAttribute(alt);
       if (size.includes("x")) {
         const [w, h] = size.split("x");
-        return `<img src="${url}" width="${w}" height="${h}" alt="${alt}">`;
+        return `<img src="${url}" width="${w}" height="${h}" alt="${altAttribute}">`;
       }
-      return `<img src="${url}" width="${size}" alt="${alt}">`;
+      return `<img src="${url}" width="${size}" alt="${altAttribute}">`;
     },
   );
 

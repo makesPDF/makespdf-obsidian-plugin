@@ -103,6 +103,23 @@ describe("inlineVaultImages", () => {
     expect(out).toBe("![x](data:image/jpeg;base64,AQID)");
   });
 
+  it("unescapes the whole verbatim set in a destination before the vault lookup", async () => {
+    // preprocessObsidian escapes a file name so `==` cannot become a
+    // highlight; the inliner has to undo exactly that set or the lookup
+    // misses and the image stays unresolved.
+    const { vault, resolveAttachment, resolves } = makeVault({
+      "a==b==.png": { extension: "png", bytes: bytesOf("PNG") },
+    });
+    const out = await inlineVaultImages(
+      "![a\\=\\=b\\=\\=.png](<a\\=\\=b\\=\\=.png>)",
+      vault,
+      resolveAttachment,
+      "note.md",
+    );
+    expect(resolves).toEqual([["a==b==.png", "note.md"]]);
+    expect(out).toBe("![a\\=\\=b\\=\\=.png](data:image/png;base64,UE5H)");
+  });
+
   it("keeps the title after an angle-bracket destination", async () => {
     const { vault, resolveAttachment } = makeVault({
       "a (b).jpg": { extension: "jpg", bytes: new Uint8Array([1, 2, 3]).buffer },
@@ -152,6 +169,23 @@ describe("inlineVaultImages", () => {
     );
 
     expect(result).toContain('src="data:image/svg+xml;base64,');
+  });
+
+  it("decodes character references in an <img src> before the vault lookup", async () => {
+    // preprocessObsidian writes the path into the tag as an attribute value,
+    // where `&` and `>` are character references; the lookup needs the path
+    // they name, and a miss must leave the tag as written.
+    const { vault, resolveAttachment, resolves } = makeVault({
+      "a&b.png": { extension: "png", bytes: bytesOf("PNG") },
+    });
+    const out = await inlineVaultImages(
+      '<img src="a&amp;b.png" width="300" alt="a&amp;b.png">',
+      vault,
+      resolveAttachment,
+      "Board.md",
+    );
+    expect(resolves).toEqual([["a&b.png", "Board.md"]]);
+    expect(out).toBe('<img src="data:image/png;base64,UE5H" width="300" alt="a&amp;b.png">');
   });
 
   it("resolves each reference against the given source path", async () => {

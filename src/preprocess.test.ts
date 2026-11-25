@@ -47,8 +47,39 @@ describe("preprocessObsidian", () => {
     expect(preprocessObsidian("![[a (b).jpg]]")).toBe("![a (b).jpg](<a (b).jpg>)");
   });
 
-  it("escapes angle brackets in an image embed's destination only", () => {
-    expect(preprocessObsidian("![[a<b>c.jpg]]")).toBe("![a<b>c.jpg](<a\\<b\\>c.jpg>)");
+  it("escapes angle brackets in an image embed's file name", () => {
+    // The file name is both the implicit alt and the destination, and neither
+    // may be read as markup by a later pass.
+    expect(preprocessObsidian("![[a<b>c.jpg]]")).toBe("![a\\<b\\>c.jpg](<a\\<b\\>c.jpg>)");
+  });
+
+  it("escapes an implicit alt and destination so later rules cannot rewrite them", () => {
+    // Unescaped, rule 6 turned both slots into `a<mark>b</mark>.png` and the
+    // inliner could no longer resolve the file.
+    expect(preprocessObsidian("![[a==b==.png]]")).toBe(
+      "![a\\=\\=b\\=\\=.png](<a\\=\\=b\\=\\=.png>)",
+    );
+  });
+
+  it("reads a table-escaped pipe on an image embed", () => {
+    // Inside a GFM table a pipe has to be written `\|`; it is the table's
+    // escape, not part of the path or the display text.
+    expect(preprocessObsidian(String.raw`| ![[photo.png\|alt text]] |`)).toBe(
+      "| ![alt text](<photo.png>) |",
+    );
+    expect(preprocessObsidian(String.raw`| ![[photo.png\|400]] |`)).toBe(
+      '| <img src="photo.png" width="400" alt="photo.png"> |',
+    );
+    // The separator before the size is escaped the same way.
+    expect(preprocessObsidian(String.raw`| ![[photo.png\|alt text\|400]] |`)).toBe(
+      '| <img src="photo.png" width="400" alt="alt text"> |',
+    );
+  });
+
+  it("escapes the file name in a sized embed's src and implicit alt", () => {
+    expect(preprocessObsidian("![[a>b.png|300]]")).toBe(
+      '<img src="a&gt;b.png" width="300" alt="a&gt;b.png">',
+    );
   });
 
   it("converts sized standard images with an unbalanced parenthesis", () => {
@@ -162,6 +193,16 @@ describe("preprocessObsidian", () => {
     );
     expect(preprocessObsidian("![logo|200x100](logo.png)")).toBe(
       '<img src="logo.png" width="200" height="100" alt="logo">',
+    );
+  });
+
+  it("escapes the alt and the destination of the resize syntax in the <img> form", () => {
+    // Both land in an attribute; an unescaped `>` ends the tag inside the alt.
+    expect(preprocessObsidian("![a>b|300](x.png)")).toBe(
+      '<img src="x.png" width="300" alt="a&gt;b">',
+    );
+    expect(preprocessObsidian("![logo|200x100](a&b.png)")).toBe(
+      '<img src="a&amp;b.png" width="200" height="100" alt="logo">',
     );
   });
 
