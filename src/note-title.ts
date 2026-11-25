@@ -14,6 +14,8 @@ import { escapeVerbatimText } from "./escaping";
 import { splitFrontMatter } from "./properties";
 
 /**
+ * The title as a markdown H1, or `""` when there is no title to print.
+ *
  * A name is a document, not a document's author, so the bar is that the file
  * name prints VERBATIM. {@link escapeVerbatimText} covers every character the
  * two later passes (`preprocessObsidian` and GFM) would otherwise rewrite; its
@@ -23,10 +25,6 @@ import { splitFrontMatter } from "./properties";
  * becomes a link in the heading. It is left alone deliberately — unlike every
  * character in the escape set, it does not change the text that prints. A
  * literal `.` in every file name is not worth escaping to remove a link.
- */
-
-/**
- * The title as a markdown H1, or `""` when there is no title to print.
  *
  * Whitespace is collapsed because a heading cannot span lines — a file name
  * cannot contain a newline, but the title also arrives from `file.basename`
