@@ -76,6 +76,62 @@ describe("preprocessObsidian", () => {
     );
   });
 
+  it("turns a non-numeric pipe on an image embed into alt text", () => {
+    // Obsidian 1.13.7 reads the pipe the same way: `$E` splits the display
+    // text off, and the `iembed` transformer sets it as the image's alt when
+    // `NT` does not parse it as a size. The image renders at natural size.
+    expect(preprocessObsidian("![[photo.png|alt text]]")).toBe(
+      "![alt text](<photo.png>)",
+    );
+    // A pipe followed by a number and letters is not a size either.
+    expect(preprocessObsidian("![[photo.png|300px]]")).toBe("![300px](<photo.png>)");
+  });
+
+  it("escapes alt text so it prints verbatim", () => {
+    // A bracket, a highlight, a tag and an entity all reached a later rule
+    // before: the alt must print as written, not turn into markup.
+    expect(preprocessObsidian("![[photo.png|see [1] here]]")).toBe(
+      "![see \\[1\\] here](<photo.png>)",
+    );
+    expect(preprocessObsidian("![[photo.png|a==b== #tag Tom & Jerry]]")).toBe(
+      "![a\\=\\=b\\=\\= \\#tag Tom \\& Jerry](<photo.png>)",
+    );
+  });
+
+  it("converts an image embed that is both sized and given alt text", () => {
+    // Obsidian's grammar puts the size last: `|alt|300`.
+    expect(preprocessObsidian("![[photo.png|alt text|300]]")).toBe(
+      '<img src="photo.png" width="300" alt="alt text">',
+    );
+    expect(preprocessObsidian("![[photo.png|alt text|300x200]]")).toBe(
+      '<img src="photo.png" width="300" height="200" alt="alt text">',
+    );
+    // In an attribute the escape set is written as character references.
+    expect(preprocessObsidian("![[photo.png|a==b== [1]|300]]")).toBe(
+      '<img src="photo.png" width="300" alt="a&#61;&#61;b&#61;&#61; &#91;1&#93;">',
+    );
+  });
+
+  it("reads a size only from the last pipe segment, as Obsidian does", () => {
+    // `|300|alt` is the alt text `300|alt`, not a size: a non-trailing size
+    // is not a size at all.
+    expect(preprocessObsidian("![[photo.png|300|alt]]")).toBe(
+      "![300|alt](<photo.png>)",
+    );
+    // Obsidian's size parser tolerates spaces around the x.
+    expect(preprocessObsidian("![[photo.png| 300 x 200 ]]")).toBe(
+      '<img src="photo.png" width="300" height="200" alt="photo.png">',
+    );
+    // A zero height is no height, as in Obsidian's `NT`.
+    expect(preprocessObsidian("![[photo.png|300x0]]")).toBe(
+      '<img src="photo.png" width="300" alt="photo.png">',
+    );
+  });
+
+  it("keeps an empty pipe equivalent to a plain embed", () => {
+    expect(preprocessObsidian("![[photo.png|]]")).toBe("![photo.png](<photo.png>)");
+  });
+
   it("leaves note embeds for the vault-aware resolver", () => {
     // resolveNoteEmbeds() runs before this and inlines or replaces every embed.
     // preprocessObsidian must not mistake an embed for a wikilink.

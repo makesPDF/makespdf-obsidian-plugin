@@ -55,12 +55,16 @@ export function unwrapImageDest(dest: string): string {
 
 /**
  * `![alt](dest)`, with an optional title after an angle-bracket destination.
- * The whitespace before a title is bounded: `\s+` would rescan a long blank
- * run from every position the destination gives back, which is quadratic.
+ * The alt may hold a backslash-escaped `]` (an alt that quotes a bracket is
+ * escaped so it prints verbatim), so its group is an escape-aware loop rather
+ * than `[^\]]*` — the latter would end the alt at the escaped bracket and
+ * leave the image uninlined. The whitespace before a title is bounded: `\s+`
+ * would rescan a long blank run from every position the destination gives
+ * back, which is quadratic.
  */
 function mdImagePattern(): RegExp {
   return new RegExp(
-    String.raw`(!\[[^\]]*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
+    String.raw`(!\[(?:\\.|[^\]\\])*\]\()${MD_IMAGE_DEST}((?:\s{1,256}(?:"[^"\n]*"|'[^'\n]*'))?\))`,
     "g",
   );
 }

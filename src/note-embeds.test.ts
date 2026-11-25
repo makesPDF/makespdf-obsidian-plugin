@@ -114,6 +114,13 @@ describe("resolveNoteEmbeds", () => {
     expect(await run("![[photo.png|400x200]]")).toBe("![[photo.png|400x200]]");
   });
 
+  it("leaves an image embed with alt text untouched", async () => {
+    // The pipe is not a note alias: the path before it is an image, so this
+    // stays for preprocessObsidian, which turns the pipe into an alt.
+    expect(await run("![[photo.png|alt text]]")).toBe("![[photo.png|alt text]]");
+    expect(await run("![[photo.png|alt text|400]]")).toBe("![[photo.png|alt text|400]]");
+  });
+
   it("leaves every supported image extension untouched", async () => {
     for (const ext of ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif"]) {
       const md = `![[photo.${ext}]]`;
@@ -168,6 +175,25 @@ describe("resolveNoteEmbeds", () => {
     expect(out).toContain('src="data:image/jpeg;base64,');
     expect(out).toContain('width="400"');
     expect(out).not.toContain("See:");
+  });
+
+  it("turns an image embed into an inlined image with its alt text", async () => {
+    // The bug this guards (MAK-285): the resolver skipped it because of the
+    // pipe and preprocess only knew numeric pipes, so the raw `![[...]]`
+    // reached the API and printed as literal text.
+    const out = await runExportPipeline("![[photo.jpg|a photo with markup [1] & more]]");
+    expect(out).toBe(
+      "![a photo with markup \\[1\\] \\& more](data:image/jpeg;base64,iVBORw==)",
+    );
+    expect(out).not.toContain("![[");
+  });
+
+  it("turns a sized image embed with alt text into a sized inlined image", async () => {
+    const out = await runExportPipeline("![[photo.jpg|alt text|400]]");
+    expect(out).toContain('<img src="data:image/jpeg;base64,');
+    expect(out).toContain('width="400"');
+    expect(out).toContain('alt="alt text"');
+    expect(out).not.toContain("![[");
   });
 
   it("inlines an image that follows an inlined note embed", async () => {

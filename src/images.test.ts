@@ -266,6 +266,24 @@ describe("inlineVaultImages", () => {
     expect(result).toBe('<img src="data:image/png;base64,UE5H" width="300" alt="photo.png">');
   });
 
+  it("still inlines an image whose alt holds an escaped bracket", async () => {
+    // An alt that quotes a bracket is escaped (`\[`) so it prints verbatim.
+    // The old alt group stopped at the first `]`, so the image was left
+    // pointing at the vault and never inlined.
+    const { vault, resolveAttachment } = makeVault({
+      "photo.png": { extension: "png", bytes: bytesOf("PNG") },
+    });
+
+    const result = await inlineVaultImages(
+      "![see \\[1\\] here](<photo.png>)",
+      vault,
+      resolveAttachment,
+      "Board.md",
+    );
+
+    expect(result).toBe("![see \\[1\\] here](data:image/png;base64,UE5H)");
+  });
+
   it("still replaces every destination when one path is a prefix of another", async () => {
     const { vault, resolveAttachment } = makeVault({
       "a.png": { extension: "png", bytes: bytesOf("A") },
